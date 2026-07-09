@@ -1,0 +1,40 @@
+[
+    {
+        "TargetFile": "enblocal.ini",
+        "Replace": {
+				    "ForceVSync=true": "ForceVSync=false",
+                    "EnableFPSLimit=true": "EnableFPSLimit=false",
+                    "EnableEdgeAA=true": "EnableEdgeAA=false",
+                    "KeyFPSLimit=36": "KeyFPSLimit=0"
+		    	},
+        "InsertAfter": {
+                    "ShowObjectsWindow=false": "\n[MEMORY]\nExpandSystemMemoryX64=false\nEnableUnsafeMemoryHacks=false\nReduceSystemMemoryUsage=false"
+        }
+    },
+    {
+        "TargetFile": "/MO2/mods/RFAD_PATCH/SKSE/Plugins/EngineFixes.toml",
+        "Replace": {
+            "bMaxStdIO = true": "bMaxStdIO = 8192",
+            "iSaveGameMaxSize = 128": ""
+        }
+    },
+    {
+        "TargetFile": "/MO2/mods/SSE Engine Fixes (skse64 plugin)/skse/plugins/EngineFixes.toml",
+        "Replace": {
+            "SaveGameMaxSize = false": "SaveGameMaxSize = true",
+            "MaxStdio = 4096": "MaxStdio = 8192"
+        }
+    },
+    {
+        "TargetFile": "MO2/profiles/RFAD_SE/Skyrim.ini",
+        "Replace": {
+            "bLockFrameRate=1": "bLockFrameRate=0"
+        }
+    },
+    {
+        "TargetFile": "MO2/mods/SSE Display Tweaks/SKSE/Plugins/SSEDisplayTweaks.ini",
+        "Replace": {
+            "FramerateLimit = 60": "FramerateLimit ="
+        }
+    }
+]

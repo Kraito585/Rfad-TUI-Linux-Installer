@@ -1,0 +1,8 @@
+[Setup]
+Lang=english
+Dir=Z:\mnt\disc3\RfadSE\RfadSEToDelete\RfaD SE2
+Group=RfaD SE
+NoIcons=0
+SetupType=custom
+Components=rfad_se,enb
+Tasks=
