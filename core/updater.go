@@ -77,7 +77,16 @@ func ProcessUpdate(gamePath string, archiveSrc string, bundledAssets embed.FS, p
 		// Отправляем прогресс распаковки (займет диапазон от 10% до 90% на общем статус-баре)
 		if progressCb != nil {
 			percent := 0.10 + (float64(i+1)/float64(totalFiles))*0.80
-			progressCb(percent, fmt.Sprintf("Распаковка: %s", filepath.Base(f.Name)))
+
+			// 1. Очищаем имя от спецсимволов с помощью нашей функции из install.go
+			cleanName := sanitize(filepath.Base(f.Name))
+
+			// 2. Обрезаем слишком длинные имена, чтобы не ломать TUI
+			if len(cleanName) > 40 {
+				cleanName = "..." + cleanName[len(cleanName)-37:]
+			}
+
+			progressCb(percent, fmt.Sprintf("Распаковка: %s", cleanName))
 		}
 	}
 

@@ -225,17 +225,27 @@ func main() {
 		}
 
 		// === Этап 6: Генерация .ppdb
-		orig := filepath.Join(cfg.InstallPath, "ModOrganizer.exe")
-		link := filepath.Join(cfg.InstallPath, "ModOrganizerSKSE.exe")
-		os.Link(orig, link)
+		mo2Path := filepath.Join(cfg.InstallPath, "MO2")
+		orig := filepath.Join(mo2Path, "ModOrganizer.exe")
+		link := filepath.Join(mo2Path, "ModOrganizerSKSE.exe")
 
-		core.GeneratePPDB("ModOrganizer.exe", cfg.UseFSR, useNVAPI, useGameMode)
-		core.GeneratePPDB("ModOrganizerSKSE.exe", cfg.UseFSR, useNVAPI, useGameMode)
+		// Очищаем старый линк (если остался от неудачных тестов)
+		os.Remove(link)
+
+		err = os.Link(orig, link)
+		if err != nil {
+			p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания дубликата MO2: %v", err)})
+			return
+		}
+
+		// Передаем cfg.InstallPath, чтобы конфиг сохранился точно куда нужно
+		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
+		core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 
 		// === Этап 7: Создание шорткатов
-
 		if cfg.CreateShortcuts {
-			err := core.CreateDesktopShortcuts(cfg.InstallPath)
+			// Передаем cfg.UseSteamFix
+			err := core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix)
 			if err != nil {
 				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания ярлыков: %v", err)})
 				return

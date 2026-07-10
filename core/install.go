@@ -62,6 +62,10 @@ func ExtractInstaller(installerPath, installPath string, progressCb func(float64
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("ошибка чтения вывода innoextract: %v", err)
+	}
+
 	// ПРОВЕРЯЕМ ОШИБКУ И ВЫВОДИМ ТО, ЧТО INNOEXTRACT НАПИСАЛ В СВОЮ ЗАЩИТУ
 	if err := cmd.Wait(); err != nil {
 		// Читаем текст ошибки из буфера
