@@ -135,12 +135,6 @@ func main() {
 			return
 		}
 
-		creds, err = bundledAssets.ReadFile("src/credentials.json")
-		if err != nil {
-			p.Send(pages.ErrorMsg{Err: fmt.Errorf("не найден файл ключей: %v", err)})
-			return
-		}
-
 		// === ЭТАП 1: ЗАГРУЗКА ОБНОВЛЕНИЯ ===
 		err = core.DownloadArchive(
 			context.Background(),
@@ -181,21 +175,31 @@ func main() {
 		time.Sleep(500 * time.Millisecond)
 
 		// === ЭТАП 3: РАСПАКОВКА ПРЕФИКСА WINE ===
-		err = core.ExtractPrefix(
-			bundledAssets,
-			func(fileName string) {
-				p.Send(pages.ProgressMsg{
-					Percent: 0.60,
-					Message: fmt.Sprintf("Создание префикса: %s", fileName),
-				})
-			},
-		)
+		prefixArchivePath := filepath.Join(cfg.InstallPath, "prefix.tar.gz")
+
+		err = core.DownloadPrefixDirectly(context.Background(), creds, prefixArchivePath, func(percent float64) {
+			p.Send(pages.ProgressMsg{
+				Percent: percent,
+				Message: fmt.Sprintf("Загрузка префикса: %.1f%%", percent*100),
+			})
+		})
 		if err != nil {
 			p.Send(pages.ErrorMsg{Err: err})
 			return
 		}
 
-		time.Sleep(500 * time.Millisecond)
+		err = core.ExtractPrefix(prefixArchivePath, func(fileName string) {
+			p.Send(pages.ProgressMsg{
+				Percent: -1,
+				Message: fmt.Sprintf("Настройка префикса: %s", fileName),
+			})
+		})
+		if err != nil {
+			p.Send(pages.ErrorMsg{Err: err})
+			return
+		}
+
+		os.Remove(prefixArchivePath)
 
 		// === ЭТАП 4: ПРИМЕНЕНИЕ ФИКСОВ КОНФИГУРАЦИИ ===
 		err = core.ApplyPatches(cfg, func(percent float64, fileName string) {

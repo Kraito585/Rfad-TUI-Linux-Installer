@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
-	"embed"
 	"fmt"
 	"io"
 	"os"
@@ -45,7 +44,7 @@ func GetPortProtonPrefixPath() (string, error) {
 }
 
 // ExtractPrefix распаковывает tar.gz архив с префиксом в директорию PortProton
-func ExtractPrefix(bundledAssets embed.FS, progressCb func(string)) error {
+func ExtractPrefix(archivePath string, progressCb func(string)) error {
 	targetDir, err := GetPortProtonPrefixPath()
 	if err != nil {
 		return err
@@ -54,9 +53,10 @@ func ExtractPrefix(bundledAssets embed.FS, progressCb func(string)) error {
 		return fmt.Errorf("ошибка доступа к директории префиксов: %v", err)
 	}
 
-	f, err := bundledAssets.Open("src/prefix.tar.gz")
+	// Открываем файл с диска вместо embed.FS
+	f, err := os.Open(archivePath)
 	if err != nil {
-		return fmt.Errorf("архив prefix.tar.gz не найден в ресурсах: %v", err)
+		return fmt.Errorf("архив %s не найден: %v", archivePath, err)
 	}
 	defer f.Close()
 
@@ -77,13 +77,8 @@ func ExtractPrefix(bundledAssets embed.FS, progressCb func(string)) error {
 			return fmt.Errorf("ошибка чтения tar: %v", err)
 		}
 
-		// Ключевое изменение:
-		// Мы используем header.Name как есть, чтобы сохранить структуру папок из архива.
-		// Если в архиве лежит "RFAD_SE/drive_c/...", то при Join с targetDir
-		// мы получим ровно то, что нужно.
 		targetPath := filepath.Join(targetDir, header.Name)
 
-		// Защита от выхода за пределы
 		if !filepath.HasPrefix(targetPath, filepath.Clean(targetDir)) {
 			return fmt.Errorf("некорректный путь в архиве: %s", header.Name)
 		}
@@ -94,13 +89,10 @@ func ExtractPrefix(bundledAssets embed.FS, progressCb func(string)) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			// Создаем директорию, если её еще нет.
-			// MkdirAll здесь безопасен: если RFAD_SE уже есть, он просто пройдет дальше.
 			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			// Создаем родительскую директорию для файла (например, если файл лежит внутри папок)
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 				return err
 			}
@@ -116,7 +108,6 @@ func ExtractPrefix(bundledAssets embed.FS, progressCb func(string)) error {
 				return err
 			}
 		case tar.TypeSymlink:
-			// Удаляем существующий путь, если это симлинк, чтобы перезаписать его
 			os.MkdirAll(filepath.Dir(targetPath), 0755)
 			_ = os.Remove(targetPath)
 			if err := os.Symlink(header.Linkname, targetPath); err != nil {
