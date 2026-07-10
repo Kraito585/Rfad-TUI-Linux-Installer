@@ -175,6 +175,13 @@ func main() {
 		time.Sleep(500 * time.Millisecond)
 
 		// === ЭТАП 3: РАСПАКОВКА ПРЕФИКСА WINE ===
+
+		prefixBase, err := core.GetPortProtonPrefixPath()
+		if err == nil {
+			oldPrefixPath := filepath.Join(prefixBase, "RFAD_SE")
+			os.RemoveAll(oldPrefixPath)
+		}
+
 		prefixArchivePath := filepath.Join(cfg.InstallPath, "prefix.tar.gz")
 
 		err = core.DownloadPrefixDirectly(context.Background(), creds, prefixArchivePath, func(percent float64) {
@@ -229,7 +236,6 @@ func main() {
 		orig := filepath.Join(mo2Path, "ModOrganizer.exe")
 		link := filepath.Join(mo2Path, "ModOrganizerSKSE.exe")
 
-		// Очищаем старый линк (если остался от неудачных тестов)
 		os.Remove(link)
 
 		err = os.Link(orig, link)
@@ -238,13 +244,11 @@ func main() {
 			return
 		}
 
-		// Передаем cfg.InstallPath, чтобы конфиг сохранился точно куда нужно
 		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 		core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 
 		// === Этап 7: Создание шорткатов
 		if cfg.CreateShortcuts {
-			// Передаем cfg.UseSteamFix
 			err := core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix)
 			if err != nil {
 				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания ярлыков: %v", err)})

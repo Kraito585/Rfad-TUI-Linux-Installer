@@ -21,7 +21,7 @@ func CreateDesktopShortcuts(gamePath string, useSteamFix bool) error {
 		icon     string
 		filename string
 	}{
-		{"RFAD-Game", filepath.Join(gamePath, "MO2", "ModOrganizerSKSE.exe"), iconGame, "rfad-game.desktop"},
+		{"RFAD-Game", filepath.Join(gamePath, "MO2", "ModOrganizerSKSE.exe") + " moshortcut://:SKSE", iconGame, "rfad-game.desktop"},
 		{"RFAD-MO2", filepath.Join(gamePath, "MO2", "ModOrganizer.exe"), iconMO2, "rfad-mo2.desktop"},
 	}
 

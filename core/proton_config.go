@@ -13,45 +13,47 @@ func GeneratePPDB(gamePath string, targetExe string, useFSR, useNVAPI, useGameMo
 
 	configPath := filepath.Join(gamePath, "MO2", ppdbName)
 
-	envVars := []string{
-		"WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\"",
-	}
+	// Начинаем собирать bash-скрипт
+	var sb strings.Builder
 
-	// Если включен Steam Fix, прописываем переменную в конфиг PortProton
+	// Обязательные заголовки PortProton
+	sb.WriteString("#!/usr/bin/env bash\n")
+	sb.WriteString("#Author: RFAD_Installer\n")
+	sb.WriteString(fmt.Sprintf("#%s\n", targetExe))
+	sb.WriteString("#Rating=1-5\n")
+
+	// Базовые настройки PortProton
+	sb.WriteString("export PW_WINE_USE=\"PROTON_LG\"\n")
+	sb.WriteString("export PW_PREFIX_NAME=\"RFAD_SE\"\n")
+
+	// DLL Overrides (критично для модов)
+	sb.WriteString("export WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\"\n")
+
 	if useSteamFix {
-		envVars = append(envVars, "START_FROM_STEAM=1")
+		sb.WriteString("export START_FROM_STEAM=\"1\"\n")
 	}
 
 	if useFSR {
-		envVars = append(envVars, "WINE_FULLSCREEN_FSR=1", "WINE_FULLSCREEN_FSR_STRENGTH=2")
+		sb.WriteString("export WINE_FULLSCREEN_FSR=\"1\"\n")
+		sb.WriteString("export WINE_FULLSCREEN_FSR_STRENGTH=\"2\"\n")
 	}
 
-	if useFSR {
-		envVars = append(envVars, "WINE_FULLSCREEN_FSR=1", "WINE_FULLSCREEN_FSR_STRENGTH=2")
-	}
 	if useNVAPI {
-		envVars = append(envVars, "PROTON_ENABLE_NVAPI=1")
+		sb.WriteString("export PROTON_ENABLE_NVAPI=\"1\"\n")
+		// Для верности добавляем DXVK флаг, который часто идёт в паре с NVAPI
+		sb.WriteString("export DXVK_ENABLE_NVAPI=\"1\"\n")
 	}
 
-	command := "%command%"
 	if useGameMode {
-		command = "gamemoderun %command%"
+		// Стандартный флаг активации Feral GameMode в PortProton
+		sb.WriteString("export PW_USE_GAMEMODE=\"1\"\n")
 	}
 
-	args := ""
+	// Для SKSE нам нужно передать аргумент запуска
 	if strings.Contains(targetExe, "SKSE") {
-		args = "moshortcut://:SKSE"
+		// PW_CUSTOM_ARGS (или PW_CMD_ARGS) передает параметры экзешнику
+		sb.WriteString("export PW_CUSTOM_ARGS=\"moshortcut://:SKSE\"\n")
 	}
 
-	// Явно указываем PREFIX_NAME=RFAD_SE, чтобы не запускался DEFAULT
-	content := fmt.Sprintf(`
-PROTON_VERSION=proton_LG_10-28
-PREFIX_NAME=RFAD_SE
-PROTON_USE_ESYNC=1
-PROTON_USE_FSYNC=1
-ENV_VARS=%s
-COMMAND_ARGS=%s %s
-`, strings.Join(envVars, " "), args, command)
-
-	return os.WriteFile(configPath, []byte(content), 0644)
+	return os.WriteFile(configPath, []byte(sb.String()), 0755) // 0755 чтобы файл был исполняемым
 }
