@@ -10,7 +10,6 @@ import (
 )
 
 func sanitize(s string) string {
-	// Оставляем только буквы, цифры, точки, слеши и пробелы
 	reg := regexp.MustCompile(`[^a-zA-Z0-9./\\ \-_]`)
 	return reg.ReplaceAllString(s, "")
 }
@@ -19,7 +18,7 @@ func DirSize(path string) (int64, error) {
 	var size int64
 	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Игнорируем файлы, к которым пока нет доступа
+			return nil
 		}
 		if !info.IsDir() {
 			size += info.Size()
@@ -31,17 +30,17 @@ func DirSize(path string) (int64, error) {
 
 // ExtractInstaller запускает оригинальный setup.exe через Wine в тихом режиме
 func ExtractInstaller(installerPath, installPath string, infPath string, progressCb func(float64, string)) error {
-	// ВАЖНО: 161 ГБ (в байтах) - примерный размер установленной сборки.
-	// Отрегулируй это значение для большей точности ползунка.
-	var expectedSize int64 = 161061273600
+	LogUnpacking("ExtractInstaller: запуск установки через Wine, setup=%s, target=%s", installerPath, installPath)
 
-	// Запускаем инсталлятор через Wine (используем системный wine или portproton)
-	// /VERYSILENT - без интерфейса, /SUPPRESSMSGBOXES - без окон с ошибками
+	var expectedSize int64 = 85899345920
+
 	cmd := exec.Command("wine", installerPath, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", fmt.Sprintf("/LOADINF=%s", infPath))
 
 	if err := cmd.Start(); err != nil {
+		LogError("ExtractInstaller: ошибка запуска setup.exe: %v", err)
 		return fmt.Errorf("ошибка запуска setup.exe: %v", err)
 	}
+	LogUnpacking("Wine-установщик запущен, PID=%d", cmd.Process.Pid)
 
 	done := make(chan error, 1)
 	go func() {
@@ -55,8 +54,10 @@ func ExtractInstaller(installerPath, installPath string, infPath string, progres
 		select {
 		case err := <-done:
 			if err != nil {
+				LogError("ExtractInstaller: сбой wine-установки: %v", err)
 				return fmt.Errorf("сбой wine-установки: %v", err)
 			}
+			LogUnpacking("Wine-установка завершена успешно")
 			if progressCb != nil {
 				progressCb(1.0, "Базовая установка завершена!")
 			}
@@ -68,7 +69,7 @@ func ExtractInstaller(installerPath, installPath string, infPath string, progres
 				percent := float64(currentSize) / float64(expectedSize)
 
 				if percent > 0.99 {
-					percent = 0.99 // Держим 99%, пока процесс не завершится
+					percent = 0.99
 				}
 
 				gbCurrent := float64(currentSize) / (1024 * 1024 * 1024)

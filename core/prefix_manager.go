@@ -45,15 +45,20 @@ func GetPortProtonPrefixPath() (string, error) {
 
 // ExtractPrefix распаковывает tar.gz архив с префиксом в директорию PortProton
 func ExtractPrefix(archivePath string, progressCb func(string)) error {
+	LogUnpacking("ExtractPrefix: начало распаковки префикса из %s", archivePath)
+
 	targetDir, err := GetPortProtonPrefixPath()
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		LogError("ExtractPrefix: ошибка доступа к %s: %v", targetDir, err)
 		return fmt.Errorf("ошибка доступа к директории префиксов: %v", err)
 	}
+	LogUnpacking("Целевая директория префикса: %s", targetDir)
 
 	// Открываем файл с диска вместо embed.FS
+	LogUnpacking("Открытие архива префикса: %s", archivePath)
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return fmt.Errorf("архив %s не найден: %v", archivePath, err)
@@ -68,6 +73,7 @@ func ExtractPrefix(archivePath string, progressCb func(string)) error {
 
 	tr := tar.NewReader(gzr)
 
+	LogUnpacking("Чтение tar-записей из архива префикса...")
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -116,5 +122,6 @@ func ExtractPrefix(archivePath string, progressCb func(string)) error {
 		}
 	}
 
+	LogUnpacking("Распаковка префикса завершена")
 	return nil
 }

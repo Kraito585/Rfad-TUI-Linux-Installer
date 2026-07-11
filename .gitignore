@@ -1,2 +1,4 @@
-./update.zip
-./src/prefix.tar.gz
+*.log
+rfad-installer
+./builds
+src/credentials.json

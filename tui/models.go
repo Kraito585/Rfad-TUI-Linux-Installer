@@ -7,8 +7,8 @@ type InstallConfig struct {
 
 	GraphicsMod     string // Страница 3
 	UseFSR          bool   // Страница 3
-	ResWidth        string // Страница 3 (например, "2560")
-	ResHeight       string // Страница 3 (например, "1440")
+	ResWidth        string // Страница 3
+	ResHeight       string // Страница 3
 	UseSteamFix     bool   // Страница 3
 	CreateShortcuts bool   // Страница 3
 }

@@ -17,8 +17,8 @@ type ConfigPatch struct {
 
 // ApplyPatches теперь сам решает, какие патчи нужны, на основе конфига
 func ApplyPatches(cfg *tui.InstallConfig, progressCallback func(percent float64, fileName string)) error {
-	// 1. Внутренняя генерация списка патчей
 	patches := generatePatchList(cfg)
+	LogInfo("ApplyPatches: сгенерировано %d патчей для применения", len(patches))
 
 	totalPatches := len(patches)
 	for i, patch := range patches {
@@ -29,10 +29,13 @@ func ApplyPatches(cfg *tui.InstallConfig, progressCallback func(percent float64,
 		}
 
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			LogError("ApplyPatches: файл не найден: %s", fullPath)
 			return fmt.Errorf("файл не найден: %s", fullPath)
 		}
 
+		LogInfo("ApplyPatches: патчинг %s...", patch.TargetFile)
 		if err := applySinglePatch(fullPath, patch); err != nil {
+			LogError("ApplyPatches: ошибка при патчинге %s: %v", patch.TargetFile, err)
 			return fmt.Errorf("ошибка при патчинге %s: %v", patch.TargetFile, err)
 		}
 	}

@@ -45,16 +45,16 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				m.focusIndex = 1
 			}
 			if m.focusIndex < 0 {
-				m.focusIndex = 7 // Зацикливаем на "Далее"
+				m.focusIndex = 6 // Зацикливаем на "Далее" (было 7)
 			}
 
 		case "down", "tab":
 			m.focusIndex++
-			// Пропускаем инпуты FSR, перепрыгивая на Steam Fix (индекс 4)
+			// Пропускаем инпуты FSR, перепрыгивая на Ярлыки (индекс 4)
 			if !m.Config.UseFSR && (m.focusIndex == 2 || m.focusIndex == 3) {
 				m.focusIndex = 4
 			}
-			if m.focusIndex > 7 {
+			if m.focusIndex > 6 { // было 7
 				m.focusIndex = 0
 			}
 
@@ -69,13 +69,12 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				}
 			case 1:
 				m.Config.UseFSR = !m.Config.UseFSR
+			// ИНДЕКС СТИМ-ФИКСА УДАЛЕН
 			case 4:
-				m.Config.UseSteamFix = !m.Config.UseSteamFix
-			case 5:
 				m.Config.CreateShortcuts = !m.Config.CreateShortcuts
-			case 6:
+			case 5:
 				return m, func() tea.Msg { return ChangePageMsg{Page: 1} } // Назад
-			case 7:
+			case 6:
 				m.Config.ResWidth = m.inputs[0].Value()
 				m.Config.ResHeight = m.inputs[1].Value()
 				return m, func() tea.Msg { return ChangePageMsg{Page: 3} } // Далее
@@ -83,7 +82,7 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 		}
 	}
 
-	// Управление фокусом текстовых полей (индексы сдвинулись на +1)
+	// Управление фокусом текстовых полей
 	if m.focusIndex == 2 {
 		m.inputs[0].Focus()
 		m.inputs[1].Blur()
@@ -151,12 +150,12 @@ func (m OptionsPage) View() string {
 		s += "\n"
 	}
 
-	// --- 2. STEAM FIX & SHORTCUTS ---
-	s += renderCheckbox(4, "Установить Steam Fix (достижения)", m.Config.UseSteamFix)
-	s += renderCheckbox(5, "Создать ярлыки на рабочем столе", m.Config.CreateShortcuts)
+	// --- 2. STEAM FIX (ЗАКОММЕНТИРОВАН) & SHORTCUTS ---
+	// s += renderCheckbox(4, "Установить Steam Fix (достижения)", m.Config.UseSteamFix)
+	s += renderCheckbox(4, "Создать ярлыки на рабочем столе", m.Config.CreateShortcuts)
 	s += "\n"
 
-	// --- 3. КНОПКИ НАЗАД / ДАЛЕЕ ---
+	// --- 3. КНОПКИ НАЗАД / ДАЛЕЕ (сдвинулись индексы) ---
 	btnStyle := lipgloss.NewStyle().
 		Padding(0, 3).
 		Border(lipgloss.RoundedBorder()).
@@ -169,12 +168,12 @@ func (m OptionsPage) View() string {
 		Background(lipgloss.Color("62"))
 
 	btnBack := btnStyle.Render("Назад")
-	if m.focusIndex == 6 {
+	if m.focusIndex == 5 {
 		btnBack = activeBtnStyle.Render("Назад")
 	}
 
 	btnNext := btnStyle.Render("Далее")
-	if m.focusIndex == 7 {
+	if m.focusIndex == 6 {
 		btnNext = activeBtnStyle.Render("Далее")
 	}
 

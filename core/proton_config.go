@@ -24,12 +24,12 @@ func getFileHash(filePath string) string {
 }
 
 func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR, useNVAPI, useGameMode, useSteamFix bool) error {
-	// 1. ИСПРАВЛЕНИЕ ИМЕНИ: теперь просто прибавляем .ppdb к оригинальному имени
+	LogInfo("GeneratePPDB: генерация конфига для %s (Wine: %s)", targetExe, wineVersion)
+
 	ppdbName := targetExe + ".ppdb"
 	exePath := filepath.Join(gamePath, "MO2", targetExe)
 	configPath := filepath.Join(gamePath, "MO2", ppdbName)
 
-	// Вычисляем хэш целевого .exe файла
 	hash := getFileHash(exePath)
 
 	var sb strings.Builder
@@ -42,14 +42,14 @@ func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR,
 	sb.WriteString(fmt.Sprintf("export PW_WINE_USE=\"%s\"\n", wineVersion))
 	sb.WriteString("export PW_PREFIX_NAME=\"RFAD_SE\"\n")
 
-	// Добавляем флаги из твоего сгенерированного файла
+	sb.WriteString("export PW_GUI_DISABLED_CS=\"1\"\n")
+
 	sb.WriteString("export PW_VULKAN_USE=\"6\"\n")
 
 	if hash != "" {
 		sb.WriteString(fmt.Sprintf("export FILE_SHA256SUM=\"%s\"\n", hash))
 	}
 
-	// Красивые имена для интерфейса PortProton
 	if strings.Contains(targetExe, "SKSE") {
 		sb.WriteString("export PORTPROTON_NAME=\"RFAD Game (SKSE)\"\n")
 		sb.WriteString("export FILE_DESCRIPTION=\"Skyrim SE Launcher\"\n")
@@ -82,5 +82,11 @@ func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR,
 		sb.WriteString("export PW_CUSTOM_ARGS=\"moshortcut://:SKSE\"\n")
 	}
 
-	return os.WriteFile(configPath, []byte(sb.String()), 0755)
+	if err := os.WriteFile(configPath, []byte(sb.String()), 0755); err != nil {
+		LogError("GeneratePPDB: ошибка записи %s: %v", configPath, err)
+		return err
+	}
+
+	LogInfo("GeneratePPDB: конфиг сохранён в %s", configPath)
+	return nil
 }

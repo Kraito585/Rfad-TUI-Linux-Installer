@@ -10,8 +10,22 @@ import (
 	"path/filepath"
 )
 
+// =======================================================================
+//                      Отправлена до лучших времён
+//    когда вобще пойму как steam fix запустить на linux тогда и верну
+
+// █   █  ███  █████     ████ █   █ ████   ███  ████  █████ █████ ████
+// ██  █░█ ░░█  ░█░░░   █ ░░░░█░  █░█░░░█ █ ░░█ █░░░█  ░█░░░█░░░░░█░░░█
+// █░█ █░█░ ░█░  █░░░░   ███░░█░░ █░████░░█░ ░█░████░░  █░░░████░░█░░░█░
+// █░░██░█░░ █░░ █░░      ░░█ █░░ █░█░░░░ █░░ █░█░░█░ ░ █░░ █░░░░ █░░ █░░
+// █░░ █░░███ ░░ █░░    ████░░ ███ ░█░░░░░ ███ ░█░░░█░  █░░ █████░████ ░░
+//  ░░  ░░ ░░░ ░  ░░     ░░░░ ░ ░░░ ░░░     ░░░ ░░░  ░   ░░  ░░░░░ ░░░░ ░
+//   ░   ░  ░░░    ░      ░░░░   ░░░  ░      ░░░  ░   ░   ░   ░░░░░ ░░░░
+
+// =======================================================================
 func ApplySteamFix(gamePath string) error {
-	// 1. Создаем архив бэкапа оригиналов (disable_stiam_fix.tar.gz)
+	LogUnpacking("Начало Steam Fix: создание бэкапа оригиналов в %s", gamePath)
+
 	backupFile, err := os.Create(filepath.Join(gamePath, "disable_stiam_fix.tar.gz"))
 	if err != nil {
 		return err
@@ -28,6 +42,7 @@ func ApplySteamFix(gamePath string) error {
 			tw.Close()
 			gw.Close()
 			backupFile.Close()
+			LogError("Steam Fix: не найден файл для бэкапа: %s", name)
 			return fmt.Errorf("не найден файл для бэкапа: %s", name)
 		}
 
@@ -44,19 +59,21 @@ func ApplySteamFix(gamePath string) error {
 	}
 	tw.Close()
 	gw.Close()
+	LogUnpacking("Бэкап создан: disable_stiam_fix.tar.gz")
 
-	// 2. Распаковываем steam_fix.tar.gz (предполагаем, что он в /src/)
+	LogUnpacking("Распаковка steam_fix.tar.gz в %s", gamePath)
 	fixFile, err := os.Open("src/steam_fix.tar.gz")
 	if err != nil {
 		return fmt.Errorf("не найден архив steam_fix.tar.gz в /src: %v", err)
 	}
 	defer fixFile.Close()
 
-	// Распаковываем фикс поверх оригиналов
 	cmd := exec.Command("tar", "-xzf", "src/steam_fix.tar.gz", "-C", gamePath)
 	if err := cmd.Run(); err != nil {
+		LogError("Steam Fix: ошибка распаковки: %v", err)
 		return fmt.Errorf("ошибка распаковки steam_fix: %v", err)
 	}
 
+	LogUnpacking("Steam Fix: распаковка завершена успешно")
 	return nil
 }
