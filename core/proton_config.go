@@ -1,32 +1,63 @@
 package core
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func GeneratePPDB(gamePath string, targetExe string, useFSR, useNVAPI, useGameMode, useSteamFix bool) error {
-	cleanName := strings.Replace(targetExe, ".exe", "", 1)
-	ppdbName := cleanName + ".ppdb"
+func getFileHash(filePath string) string {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
 
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR, useNVAPI, useGameMode, useSteamFix bool) error {
+	// 1. ИСПРАВЛЕНИЕ ИМЕНИ: теперь просто прибавляем .ppdb к оригинальному имени
+	ppdbName := targetExe + ".ppdb"
+	exePath := filepath.Join(gamePath, "MO2", targetExe)
 	configPath := filepath.Join(gamePath, "MO2", ppdbName)
 
-	// Начинаем собирать bash-скрипт
+	// Вычисляем хэш целевого .exe файла
+	hash := getFileHash(exePath)
+
 	var sb strings.Builder
 
-	// Обязательные заголовки PortProton
 	sb.WriteString("#!/usr/bin/env bash\n")
 	sb.WriteString("#Author: RFAD_Installer\n")
 	sb.WriteString(fmt.Sprintf("#%s\n", targetExe))
 	sb.WriteString("#Rating=1-5\n")
 
-	// Базовые настройки PortProton
-	sb.WriteString("export PW_WINE_USE=\"PROTON_LG\"\n")
+	sb.WriteString(fmt.Sprintf("export PW_WINE_USE=\"%s\"\n", wineVersion))
 	sb.WriteString("export PW_PREFIX_NAME=\"RFAD_SE\"\n")
 
-	// DLL Overrides (критично для модов)
+	// Добавляем флаги из твоего сгенерированного файла
+	sb.WriteString("export PW_VULKAN_USE=\"6\"\n")
+
+	if hash != "" {
+		sb.WriteString(fmt.Sprintf("export FILE_SHA256SUM=\"%s\"\n", hash))
+	}
+
+	// Красивые имена для интерфейса PortProton
+	if strings.Contains(targetExe, "SKSE") {
+		sb.WriteString("export PORTPROTON_NAME=\"RFAD Game (SKSE)\"\n")
+		sb.WriteString("export FILE_DESCRIPTION=\"Skyrim SE Launcher\"\n")
+	} else {
+		sb.WriteString("export PORTPROTON_NAME=\"Mod Organizer 2\"\n")
+		sb.WriteString("export FILE_DESCRIPTION=\"Mod Organizer 2 GUI\"\n")
+	}
+
 	sb.WriteString("export WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\"\n")
 
 	if useSteamFix {
@@ -40,20 +71,16 @@ func GeneratePPDB(gamePath string, targetExe string, useFSR, useNVAPI, useGameMo
 
 	if useNVAPI {
 		sb.WriteString("export PROTON_ENABLE_NVAPI=\"1\"\n")
-		// Для верности добавляем DXVK флаг, который часто идёт в паре с NVAPI
 		sb.WriteString("export DXVK_ENABLE_NVAPI=\"1\"\n")
 	}
 
 	if useGameMode {
-		// Стандартный флаг активации Feral GameMode в PortProton
 		sb.WriteString("export PW_USE_GAMEMODE=\"1\"\n")
 	}
 
-	// Для SKSE нам нужно передать аргумент запуска
 	if strings.Contains(targetExe, "SKSE") {
-		// PW_CUSTOM_ARGS (или PW_CMD_ARGS) передает параметры экзешнику
 		sb.WriteString("export PW_CUSTOM_ARGS=\"moshortcut://:SKSE\"\n")
 	}
 
-	return os.WriteFile(configPath, []byte(sb.String()), 0755) // 0755 чтобы файл был исполняемым
+	return os.WriteFile(configPath, []byte(sb.String()), 0755)
 }

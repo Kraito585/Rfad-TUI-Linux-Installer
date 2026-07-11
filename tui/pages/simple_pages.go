@@ -130,7 +130,7 @@ func (m SummaryPage) View() string {
 	}
 	s += fmt.Sprintf("FSR 3.0: %s\n", valStyle.Render(fsrStr))
 
-	s += fmt.Sprintf("Steam Fix: %v\n", m.Config.UseSteamFix)
+	// s += fmt.Sprintf("Steam Fix: %v\n", m.Config.UseSteamFix)
 
 	s += "\nВсё верно?\n[ Enter - Начать установку | Esc - Назад ]"
 

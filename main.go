@@ -111,9 +111,39 @@ func main() {
 		time.Sleep(500 * time.Millisecond)
 
 		// === ЭТАП 0: РАСПАКОВКА БАЗОВОЙ ИГРЫ ЧЕРЕЗ INNOEXTRACT ===
+		// === ЭТАП 0: ЧЕСТНАЯ УСТАНОВКА ЧЕРЕЗ WINE ===
+
+		// 1. Формируем список компонентов на основе выбора в TUI
+		components := "rfad_se,enb"
+		if cfg.GraphicsMod == "ReShade" {
+			components = "rfad_se,reshade"
+		}
+
+		// 2. Генерируем .inf файл динамически, подставляя путь пользователя
+		// Inno Setup требует пути в формате Windows, поэтому заменяем слеши и добавляем диск Z:
+		winInstallPath := "Z:" + strings.ReplaceAll(cfg.InstallPath, "/", "\\")
+
+		infContent := fmt.Sprintf(`[Setup]
+			Lang=english
+			Dir=%s
+			Group=RfaD SE
+			NoIcons=0
+			SetupType=custom
+			Components=%s
+			Tasks=
+		`, winInstallPath, components)
+
+		infPath := filepath.Join(os.TempDir(), "rfad_install.inf")
+		os.WriteFile(infPath, []byte(infContent), 0644)
+
+		// Передаем путь к inf-файлу в формате Windows
+		winInfPath := "Z:" + strings.ReplaceAll(infPath, "/", "\\")
+
+		// 3. Запускаем установку
 		err := core.ExtractInstaller(
 			cfg.InstallerPath,
-			gamePath,
+			cfg.InstallPath,
+			winInfPath, // Передаем сгенерированный INF
 			func(percent float64, detail string) {
 				p.Send(pages.ProgressMsg{
 					Percent: percent,
@@ -121,21 +151,22 @@ func main() {
 				})
 			},
 		)
+
+		os.Remove(infPath)
+
 		if err != nil {
 			p.Send(pages.ErrorMsg{Err: err})
 			return
 		}
 
-		time.Sleep(500 * time.Millisecond)
+		// === ЭТАП 1: ЗАГРУЗКА ОБНОВЛЕНИЯ ===
 
-		// Читаем ключи от Google Drive только после успешной распаковки
 		creds, err := bundledAssets.ReadFile("src/credentials.json")
 		if err != nil {
 			p.Send(pages.ErrorMsg{Err: fmt.Errorf("не найден файл ключей: %v", err)})
 			return
 		}
 
-		// === ЭТАП 1: ЗАГРУЗКА ОБНОВЛЕНИЯ ===
 		err = core.DownloadArchive(
 			context.Background(),
 			creds,
@@ -244,12 +275,15 @@ func main() {
 			return
 		}
 
-		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
-		core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
+		wineVersion := "GE-PROTON11-1"
+
+		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
+		core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 
 		// === Этап 7: Создание шорткатов
 		if cfg.CreateShortcuts {
-			err := core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix)
+			// Передаем bundledAssets для извлечения .ico файла
+			err := core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix, bundledAssets)
 			if err != nil {
 				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания ярлыков: %v", err)})
 				return

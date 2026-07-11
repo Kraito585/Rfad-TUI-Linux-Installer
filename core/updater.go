@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ProcessUpdate перемещает архив, распаковывает его и заменяет EngineFixes.dll
@@ -98,15 +99,9 @@ func ProcessUpdate(gamePath string, archiveSrc string, bundledAssets embed.FS, p
 		progressCb(0.95, "Инъекция стабильного EngineFixes.dll...")
 	}
 
-	// Стандартный путь плагина внутри структуры мода Skyrim
-	dllPath := filepath.Join(targetDir, "SKSE/Plugins/EngineFixes.dll")
-
-	// Насильно удаляем старый файл, если он распаковался из апдейта
-	_ = os.Remove(dllPath)
-
-	// Гарантируем наличие подпапок SKSE/Plugins
-	if err := os.MkdirAll(filepath.Dir(dllPath), 0755); err != nil {
-		return err
+	// 4. Глобальная замена EngineFixes.dll во всех модах (Игнорируя регистр)
+	if progressCb != nil {
+		progressCb(0.95, "Инъекция стабильного EngineFixes.dll...")
 	}
 
 	// Достаем стабильный DLL из бинарника
@@ -115,14 +110,36 @@ func ProcessUpdate(gamePath string, archiveSrc string, bundledAssets embed.FS, p
 		return fmt.Errorf("критическая ошибка: EngineFixes.dll не найден в src инсталлятора: %v", err)
 	}
 
-	// Записываем его на диск
-	if err := os.WriteFile(dllPath, stableDLL, 0644); err != nil {
-		return fmt.Errorf("не удалось записать стабильный EngineFixes.dll: %v", err)
+	// Указываем корневую папку всех модов MO2
+	modsDir := filepath.Join(gamePath, "MO2/mods")
+	replacedCount := 0
+
+	// Сканируем абсолютно все папки модов
+	err = filepath.Walk(modsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Игнорируем файлы без доступа
+		}
+		// Ищем файл независимо от регистра (EngineFixes.dll, enginefixes.dll и т.д.)
+		if !info.IsDir() && strings.EqualFold(info.Name(), "enginefixes.dll") {
+			// Нашли! Перезаписываем его нашим стабильным файлом
+			if writeErr := os.WriteFile(path, stableDLL, 0644); writeErr == nil {
+				replacedCount++
+			}
+		}
+		return nil
+	})
+
+	// "План Б": Если файла вообще не было ни в одном моде, кладем его в наш патч
+	if replacedCount == 0 {
+		fallbackPath := filepath.Join(targetDir, "SKSE/Plugins/EngineFixes.dll")
+		os.MkdirAll(filepath.Dir(fallbackPath), 0755)
+		os.WriteFile(fallbackPath, stableDLL, 0644)
 	}
 
 	if progressCb != nil {
-		progressCb(1.0, "Мод-патч успешно сформирован!")
+		progressCb(1.0, "Установка успешно завершена!")
 	}
+
 	return nil
 }
 

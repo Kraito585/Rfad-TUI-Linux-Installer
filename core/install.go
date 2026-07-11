@@ -1,14 +1,12 @@
 package core
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
+	"time"
 )
 
 func sanitize(s string) string {
@@ -17,85 +15,68 @@ func sanitize(s string) string {
 	return reg.ReplaceAllString(s, "")
 }
 
-// ExtractInstaller запускает innoextract и читает его консольный вывод для TUI
-func ExtractInstaller(installerPath, installPath string, progressCb func(float64, string)) error {
-	cmd := exec.Command("innoextract", "-e", "-d", installPath, installerPath)
+func DirSize(path string) (int64, error) {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Игнорируем файлы, к которым пока нет доступа
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return err
+	})
+	return size, err
+}
 
-	// СОЗДАЕМ БУФЕР ДЛЯ ПЕРЕХВАТА ОШИБОК (STDERR)
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
+// ExtractInstaller запускает оригинальный setup.exe через Wine в тихом режиме
+func ExtractInstaller(installerPath, installPath string, infPath string, progressCb func(float64, string)) error {
+	// ВАЖНО: 161 ГБ (в байтах) - примерный размер установленной сборки.
+	// Отрегулируй это значение для большей точности ползунка.
+	var expectedSize int64 = 161061273600
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("ошибка создания пайпа: %v", err)
-	}
+	// Запускаем инсталлятор через Wine (используем системный wine или portproton)
+	// /VERYSILENT - без интерфейса, /SUPPRESSMSGBOXES - без окон с ошибками
+	cmd := exec.Command("wine", installerPath, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", fmt.Sprintf("/LOADINF=%s", infPath))
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("ошибка запуска innoextract: %v", err)
+		return fmt.Errorf("ошибка запуска setup.exe: %v", err)
 	}
 
-	scanner := bufio.NewScanner(stdout)
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
 
-	var count float64
-	var maxFiles float64 = 60000
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if strings.Contains(line, "Extracting") || strings.HasPrefix(line, " - ") {
-			count++
-			percent := count / maxFiles
-
-			if percent > 0.99 {
-				percent = 0.99
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				return fmt.Errorf("сбой wine-установки: %v", err)
 			}
-
 			if progressCb != nil {
-				cleanName := sanitize(strings.TrimPrefix(line, "Extracting \""))
+				progressCb(1.0, "Базовая установка завершена!")
+			}
+			return nil
 
-				if len(cleanName) > 40 {
-					cleanName = "..." + cleanName[len(cleanName)-37:]
+		case <-ticker.C:
+			if progressCb != nil {
+				currentSize, _ := DirSize(installPath)
+				percent := float64(currentSize) / float64(expectedSize)
+
+				if percent > 0.99 {
+					percent = 0.99 // Держим 99%, пока процесс не завершится
 				}
 
-				progressCb(percent, fmt.Sprintf("Распаковка: %s", cleanName))
+				gbCurrent := float64(currentSize) / (1024 * 1024 * 1024)
+				gbTotal := float64(expectedSize) / (1024 * 1024 * 1024)
+
+				msg := fmt.Sprintf("Установка базовой игры: %.1f ГБ / %.1f ГБ", gbCurrent, gbTotal)
+				progressCb(percent, msg)
 			}
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("ошибка чтения вывода innoextract: %v", err)
-	}
-
-	// ПРОВЕРЯЕМ ОШИБКУ И ВЫВОДИМ ТО, ЧТО INNOEXTRACT НАПИСАЛ В СВОЮ ЗАЩИТУ
-	if err := cmd.Wait(); err != nil {
-		// Читаем текст ошибки из буфера
-		errMsg := strings.TrimSpace(stderrBuf.String())
-		if errMsg == "" {
-			errMsg = err.Error()
-		}
-		// Возвращаем детализированную ошибку
-		return fmt.Errorf("сбой innoextract: %s", errMsg)
-	}
-
-	entries, _ := os.ReadDir(installPath)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			subDirPath := filepath.Join(installPath, entry.Name())
-			subEntries, _ := os.ReadDir(subDirPath)
-
-			for _, subEntry := range subEntries {
-				src := filepath.Join(subDirPath, subEntry.Name())
-				dst := filepath.Join(installPath, subEntry.Name())
-				os.Rename(src, dst)
-			}
-			// 2. Удаляем папку (будь она app, sd или любая другая пустая)
-			os.Remove(subDirPath)
-		}
-	}
-
-	if progressCb != nil {
-		progressCb(1.0, "Распаковка базовой игры завершена!")
-	}
-
-	return nil
 }
