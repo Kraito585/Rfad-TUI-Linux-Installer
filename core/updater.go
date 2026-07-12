@@ -2,6 +2,7 @@ package core
 
 import (
 	"archive/zip"
+	"bufio"
 	"embed"
 	"fmt"
 	"io"
@@ -181,4 +182,46 @@ func moveFile(src, dst string) error {
 	destination.Close()
 
 	return os.Remove(src)
+}
+
+func EnablePlugin(gamePath string, pluginName string) error {
+	// Путь к файлу плагинов внутри профиля
+	pluginTxtPath := filepath.Join(gamePath, "MO2/profiles/RFAD_SE/plugins.txt")
+
+	// 1. Читаем существующий файл
+	file, err := os.OpenFile(pluginTxtPath, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// 2. Проверяем, нет ли уже такого плагина (ищем как с *, так и без)
+	found := false
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "*"+pluginName || line == pluginName {
+			found = true
+			break
+		}
+	}
+
+	// 3. Если не нашли, дописываем плагин со звездочкой
+	if !found {
+		// Переходим в конец файла для записи
+		_, err := file.Seek(0, 2)
+		if err != nil {
+			return err
+		}
+
+		// Добавляем новую строку со звездочкой
+		if _, err := file.WriteString("\n*" + pluginName); err != nil {
+			return err
+		}
+		LogInfo("Плагин %s успешно активирован в plugins.txt", pluginName)
+	} else {
+		LogInfo("Плагин %s уже активен", pluginName)
+	}
+
+	return nil
 }

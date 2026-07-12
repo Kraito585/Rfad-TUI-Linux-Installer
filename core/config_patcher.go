@@ -10,9 +10,10 @@ import (
 )
 
 type ConfigPatch struct {
-	TargetFile  string
-	Replace     map[string]string
-	InsertAfter map[string]string
+	TargetFile    string
+	Replace       map[string]string
+	ReplacePrefix map[string]string
+	InsertAfter   map[string]string
 }
 
 // ApplyPatches теперь сам решает, какие патчи нужны, на основе конфига
@@ -54,12 +55,25 @@ func generatePatchList(cfg *tui.InstallConfig) []ConfigPatch {
 	if cfg.UseFSR {
 		patches = append(patches, ConfigPatch{
 			TargetFile: "MO2/profiles/RFAD_SE/SkyrimPrefs.ini",
+			ReplacePrefix: map[string]string{
+				"iSize W=": fmt.Sprintf("iSize W=%s", cfg.ResWidth),
+				"iSize H=": fmt.Sprintf("iSize H=%s", cfg.ResHeight),
+			},
+		})
+
+		resString := fmt.Sprintf("Resolution = %sx%s", cfg.ResWidth, cfg.ResHeight)
+		patches = append(patches, ConfigPatch{
+			TargetFile: "MO2/mods/SSE Display Tweaks/SKSE/Plugins/SSEDisplayTweaks.ini",
 			Replace: map[string]string{
-				"iSize W=1920": fmt.Sprintf("iSize W=%s", cfg.ResWidth),
-				"iSize H=1080": fmt.Sprintf("iSize H=%s", cfg.ResHeight),
+				"Fullscreen = false": "Fullscreen = true",
+				"Borderless = true":  "Borderless = false",
+			},
+			ReplacePrefix: map[string]string{
+				"Resolution =": resString,
 			},
 		})
 	}
+
 	return patches
 }
 
@@ -76,14 +90,33 @@ func applySinglePatch(filePath string, patch ConfigPatch) error {
 		line := scanner.Text()
 		trimmedLine := strings.TrimSpace(line)
 
-		if replaceWith, ok := patch.Replace[trimmedLine]; ok {
-			newLines = append(newLines, replaceWith)
-		} else {
+		replaced := false
+
+		if patch.Replace != nil {
+			if replaceWith, ok := patch.Replace[trimmedLine]; ok {
+				newLines = append(newLines, replaceWith)
+				replaced = true
+			}
+		}
+
+		if !replaced && patch.ReplacePrefix != nil {
+			for prefix, replaceWith := range patch.ReplacePrefix {
+				if strings.HasPrefix(trimmedLine, prefix) {
+					newLines = append(newLines, replaceWith)
+					replaced = true
+					break
+				}
+			}
+		}
+
+		if !replaced {
 			newLines = append(newLines, line)
 		}
 
-		if insertStr, ok := patch.InsertAfter[trimmedLine]; ok {
-			newLines = append(newLines, insertStr)
+		if patch.InsertAfter != nil {
+			if insertStr, ok := patch.InsertAfter[trimmedLine]; ok {
+				newLines = append(newLines, insertStr)
+			}
 		}
 	}
 

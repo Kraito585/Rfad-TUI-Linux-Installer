@@ -208,7 +208,7 @@ func main() {
 			Lang=english
 			Dir=%s
 			Group=RfaD SE
-			NoIcons=0
+			NoIcons=1
 			SetupType=custom
 			Components=%s
 			Tasks=
@@ -223,6 +223,7 @@ func main() {
 			cfg.InstallerPath,
 			cfg.InstallPath,
 			winInfPath,
+			cfg.GraphicsMod,
 			func(percent float64, detail string) {
 				p.Send(pages.ProgressMsg{
 					Percent: percent,
@@ -238,7 +239,7 @@ func main() {
 			return
 		}
 
-		// === ЭТАП 1: ЗАГРУЗКА ОБНОВЛЕНИЯ ===
+		// === ЭТАП 2: ЗАГРУЗКА ОБНОВЛЕНИЯ ===
 		core.LogInfo("=== ЭТАП 1: Загрузка обновления ===")
 
 		creds, err := bundledAssets.ReadFile("src/credentials.json")
@@ -268,8 +269,6 @@ func main() {
 		core.LogInfo("Обновление загружено успешно: %s", archiveDest)
 		time.Sleep(500 * time.Millisecond)
 
-		// === ЭТАП 2: РАСПАКОВКА АРХИВА ===
-		core.LogInfo("=== ЭТАП 2: Распаковка архива обновления ===")
 		err = core.ProcessUpdate(
 			gamePath,
 			archiveDest,
@@ -285,6 +284,13 @@ func main() {
 			core.LogError("Ошибка распаковки обновления: %v", err)
 			p.Send(pages.ErrorMsg{Err: err})
 			return
+		}
+
+		err = core.EnablePlugin(gamePath, "Rfad_Runes.esp")
+		if err != nil {
+			core.LogWarn("Не удалось автоматически включить Rfad_Runes.esp: %v", err)
+		} else {
+			core.LogInfo("Rfad_Runes.esp успешно добавлен в plugins.txt")
 		}
 
 		core.LogInfo("Распаковка обновления завершена")

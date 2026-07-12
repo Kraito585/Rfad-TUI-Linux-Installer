@@ -132,7 +132,7 @@ func (m OptionsPage) View() string {
 	}
 
 	// --- 1. FSR ---
-	s += renderCheckbox(1, "Включить генерацию кадров (FSR)", m.Config.UseFSR)
+	s += renderCheckbox(1, "Включить upscale (FSR)", m.Config.UseFSR)
 
 	if m.Config.UseFSR {
 		widthView := m.inputs[0].View()

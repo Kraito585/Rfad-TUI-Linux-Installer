@@ -29,12 +29,20 @@ func DirSize(path string) (int64, error) {
 }
 
 // ExtractInstaller запускает оригинальный setup.exe через Wine в тихом режиме
-func ExtractInstaller(installerPath, installPath string, infPath string, progressCb func(float64, string)) error {
+func ExtractInstaller(installerPath, installPath string, infPath string, graphicsMod string, progressCb func(float64, string)) error {
 	LogUnpacking("ExtractInstaller: запуск установки через Wine, setup=%s, target=%s", installerPath, installPath)
 
-	var expectedSize int64 = 85899345920
+	var expectedSize int64
+	if graphicsMod == "ReShade" {
+		// TODO: Замерить точный вес чистой установки с ReShade в байтах
+		expectedSize = 85899345920 // Временное значение
+	} else {
+		// TODO: Замерить точный вес чистой установки с ENB в байтах
+		expectedSize = 85899345920 // Временное значение
+	}
 
 	cmd := exec.Command("wine", installerPath, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", fmt.Sprintf("/LOADINF=%s", infPath))
+	cmd.Env = append(os.Environ(), "WINEDLLOVERRIDES=winemenubuilder.exe=d")
 
 	if err := cmd.Start(); err != nil {
 		LogError("ExtractInstaller: ошибка запуска setup.exe: %v", err)

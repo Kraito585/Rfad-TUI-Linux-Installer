@@ -79,7 +79,13 @@ func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR,
 	}
 
 	if strings.Contains(targetExe, "SKSE") {
-		sb.WriteString("export PW_CUSTOM_ARGS=\"moshortcut://:SKSE\"\n")
+		// Передаем параметр БЕЗ внешних экранированных кавычек
+		// Это должно выглядеть в файле как: export LAUNCH_PARAMETERS=moshortcut://:SKSE
+		sb.WriteString("export LAUNCH_PARAMETERS=moshortcut://:SKSE\n")
+
+		// На всякий случай дублируем в PW_CUSTOM_ARGS, так как старые версии PortProton
+		// могут игнорировать LAUNCH_PARAMETERS
+		sb.WriteString("export PW_CUSTOM_ARGS=moshortcut://:SKSE\n")
 	}
 
 	if err := os.WriteFile(configPath, []byte(sb.String()), 0755); err != nil {

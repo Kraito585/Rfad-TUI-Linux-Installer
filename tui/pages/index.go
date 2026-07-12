@@ -154,7 +154,7 @@ func (m Index) View() string {
 		Foreground(lipgloss.Color("62")).
 		Bold(true).
 		MarginBottom(1).
-		Render("=== TUI Установщик RFAD SE 6.2 ===")
+		Render("=== TUI Установщик RFAD SE ===")
 
 	// 2. КОНТЕНТ (По левому краю внутри рамки)
 	var rawBody string
@@ -186,7 +186,7 @@ func (m Index) View() string {
 	// 3. ПОДВАЛ (По центру, серый цвет)
 	footerText := "Нажмите 'ctrl+c' для принудительного выхода."
 	if m.Done {
-		footerText = "Нажмите 'ctrl+c' или 'q' для выхода."
+		footerText = "Нажмите 'ctrl+c' для выхода."
 	}
 	footer := lipgloss.NewStyle().
 		Width(boxWidth).
