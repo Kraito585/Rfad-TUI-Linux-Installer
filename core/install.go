@@ -29,9 +29,12 @@ func DirSize(path string) (int64, error) {
 }
 
 // ExtractInstaller запускает оригинальный setup.exe через Wine в тихом режиме
+// Использование Innoextract невозможен.
+// ps. если только авторы сборки не поделятся скриптами из установщика)))
 func ExtractInstaller(installerPath, installPath string, infPath string, graphicsMod string, progressCb func(float64, string)) error {
 	LogUnpacking("ExtractInstaller: запуск установки через Wine, setup=%s, target=%s", installerPath, installPath)
 
+	//Да это фиксированые значения с Wine иначе не получится
 	var expectedSize int64
 	if graphicsMod == "ReShade" {
 		// TODO: Замерить точный вес чистой установки с ReShade в байтах

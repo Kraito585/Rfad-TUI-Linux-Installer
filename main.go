@@ -82,7 +82,6 @@ func RunSystemChecks() (bool, bool, bool) {
 		}
 	}
 
-	// Если мы дошли сюда, значит PortProton точно есть (первый параметр = true)
 	return true, hasGameMode, hasNVAPI
 }
 
@@ -135,7 +134,6 @@ func ensureTerminal() {
 	os.Exit(0)
 }
 
-// openLogTerminal открывает отдельное окно терминала с tail -f файла лога.
 func openLogTerminal(logPath string) {
 	if logPath == "" {
 		return
@@ -209,7 +207,6 @@ func main() {
 
 	startChan := make(chan *tui.InstallConfig)
 
-	// Читаем ASCII арт из встроенных ресурсов
 	asciiBytes, err := bundledAssets.ReadFile("src/install.ascii")
 	asciiArt := ""
 	if err == nil {
@@ -218,7 +215,6 @@ func main() {
 		core.LogWarn("Не удалось загрузить install.ascii: %v", err)
 	}
 
-	// Передаем asciiArt в NewIndex
 	page := pages.NewIndex(startChan, asciiArt)
 	p := tea.NewProgram(page, tea.WithInput(os.Stdin))
 
@@ -232,7 +228,8 @@ func main() {
 
 		time.Sleep(500 * time.Millisecond)
 
-		// === ЭТАП 0: ЧЕСТНАЯ УСТАНОВКА ЧЕРЕЗ WINE ===
+		// === ЭТАП 1: УСТАНОВКА ЧИСТОЙ ИГРЫ ЧЕРЕЗ WINE ===
+		// innoexctract тут заюзать невозможно
 		core.LogInfo("=== ЭТАП 0: Установка базовой игры через Wine ===")
 
 		components := "rfad_se,enb"
@@ -243,14 +240,13 @@ func main() {
 		winInstallPath := "Z:" + strings.ReplaceAll(cfg.InstallPath, "/", "\\")
 
 		infContent := fmt.Sprintf(`[Setup]
-			Lang=english
-			Dir=%s
-			Group=RfaD SE
-			NoIcons=1
-			SetupType=custom
-			Components=%s
-			Tasks=
-		`, winInstallPath, components)
+Lang=english
+Dir=%s
+Group=RfaD SE
+NoIcons=1
+SetupType=custom
+Components=%s
+Tasks=`, winInstallPath, components)
 
 		infPath := filepath.Join(os.TempDir(), "rfad_install.inf")
 		os.WriteFile(infPath, []byte(infContent), 0644)
@@ -277,7 +273,7 @@ func main() {
 			return
 		}
 
-		// === ЭТАП 2: ЗАГРУЗКА ОБНОВЛЕНИЯ ===
+		// === ЭТАП 2: ЗАГРУЗКА И УСТАНОВКА ОБНОВЛЕНИЯ ===
 		core.LogInfo("=== ЭТАП 1: Загрузка обновления ===")
 
 		creds, err := bundledAssets.ReadFile("src/credentials.json")
@@ -391,23 +387,32 @@ func main() {
 
 		// === ЭТАП 5: Генерация PPDB-файлов ===
 		core.LogInfo("=== ЭТАП 5: Генерация PPDB-файлов ===")
+		core.LogInfo("=== ЭТАП 5: Генерация конфигов и плагинов ===")
 		mo2Path := filepath.Join(cfg.InstallPath, "MO2")
 		wineVersion := "GE-PROTON11-1"
 		orig := filepath.Join(mo2Path, "ModOrganizer.exe")
-		if !cfg.UseSteamFix {
+
+		if cfg.UseSteamFix {
+			// 1. Внедряем Python-плагин для генерации маркера
+			// Необходим для коректного запуска RFAD из steam в случае если mo2
+			// был запущен раньше чем игра, поскольку в запуск игры вшит одноразовый старт mo2
+			// для открытия контекстного окна portproton с дозогрузкой библиотек
+			if err := core.CreateMO2PythonPlugin(cfg.InstallPath); err != nil {
+				core.LogWarn("Не удалось создать Python-плагин: %v", err)
+			}
+		} else {
+			// 2. Генерация хардлинка для пиратки
 			link := filepath.Join(mo2Path, "ModOrganizerSKSE.exe")
-
 			os.Remove(link)
-
-			err = os.Link(orig, link)
-			if err != nil {
+			if err = os.Link(orig, link); err != nil {
 				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания дубликата MO2: %v", err)})
 				return
 			}
-			core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
+			core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode)
 		}
 
-		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
+		// 3. Базовый PPDB (нужен всем)
+		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode)
 
 		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 
@@ -418,8 +423,7 @@ func main() {
 
 			err = core.ApplySteamFix(cfg.InstallPath, bundledAssets)
 			if err != nil {
-				core.LogError("Ошибка применения Steam Fix: %v", err)
-				p.Send(pages.ErrorMsg{Err: err})
+				core.LogError("ВНИМАНИЕ: Не удалось преминить Steam Fix: %v", err)
 				return
 			}
 
@@ -428,31 +432,34 @@ func main() {
 				core.LogError("ВНИМАНИЕ: Не удалось установить GE-Proton: %v", err)
 			}
 
+			// Скрипт для использования префикса распаковоного в PortProton экономия 4 гб на диске
+			// дополнительная горантия целосности prefix и дозогрузка недостоющих пакетов через PortProton
+			prelaunchScript, err := core.CreateSteamPrelaunchScript(cfg.InstallPath)
+			if err != nil {
+				core.LogError("Ошибка создания prelaunch-скрипта: %v", err)
+			}
+
 			mo2ExePath := filepath.Join(cfg.InstallPath, "MO2", "ModOrganizer.exe")
 			startDir := filepath.Join(cfg.InstallPath, "MO2")
 
-			// База, STEAM_APP_ID, APP ID оригинального скайрима, WINEDLLOVERRIDES, оптимальные либы для RFAD
+			// ДИНАМИЧЕСКАЯ СБОРКА ФЛАГОВ ЗАПУСКА
 			launchOpts := "STEAM_APP_ID=489830 WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\" "
 
-			// FSR, если включен
 			if cfg.UseFSR {
 				launchOpts += "WINE_FULLSCREEN_FSR=1 WINE_FULLSCREEN_FSR_STRENGTH=2 "
 			}
 
-			// NVAPI, если потдерживается
 			if useNVAPI {
 				launchOpts += "PROTON_ENABLE_NVAPI=1 "
 			}
 
-			// gamemoderun, если потдерживается
 			if useGameMode {
 				launchOpts += "gamemoderun "
 			}
 
-			// rtcut://:SKSE, пропуск MO2
-			launchOpts += "%command% \"moshortcut://:SKSE\""
+			launchOpts += fmt.Sprintf("bash \"%s\" %%command%% \"moshortcut://:SKSE\"", prelaunchScript)
 
-			err = core.AddToSteamShortcuts("RFAD Game", mo2ExePath, startDir, launchOpts)
+			err = core.AddToSteamShortcuts("RFAD Game (License)", mo2ExePath, startDir, launchOpts)
 			if err != nil {
 				core.LogError("Ошибка при добавлении лицензионного ярлыка в Steam: %v", err)
 			} else {

@@ -203,7 +203,6 @@ func ApplySteamFix(gamePath string, assets embed.FS) error {
 	gw.Close()
 	LogUnpacking("Бэкап создан: disable_stiam_fix.tar.gz")
 
-	// === ИСПРАВЛЕНИЕ РАБОТЫ С EMBED.FS ===
 	LogUnpacking("Извлечение steam_fix.tar.gz из бинарника...")
 
 	// Читаем архив из памяти
@@ -212,17 +211,14 @@ func ApplySteamFix(gamePath string, assets embed.FS) error {
 		return fmt.Errorf("не удалось прочитать steam_fix.tar.gz из ресурсов: %v", err)
 	}
 
-	// Создаем временный файл во временной папке ОС
 	tmpArchivePath := filepath.Join(os.TempDir(), "rfad_steam_fix_temp.tar.gz")
 	if err := os.WriteFile(tmpArchivePath, fixData, 0644); err != nil {
 		return fmt.Errorf("ошибка записи временного файла фикса: %v", err)
 	}
-	// Обязательно удаляем его после распаковки, чтобы не мусорить на диске
 	defer os.Remove(tmpArchivePath)
 
 	LogUnpacking("Распаковка steam_fix.tar.gz в %s", gamePath)
 
-	// Натравливаем tar на наш временный файл
 	cmd := exec.Command("tar", "-xzf", tmpArchivePath, "-C", gamePath)
 	if err := cmd.Run(); err != nil {
 		LogError("Steam Fix: ошибка распаковки: %v", err)
@@ -233,7 +229,9 @@ func ApplySteamFix(gamePath string, assets embed.FS) error {
 	return nil
 }
 
-// CreateLaunchScript генерирует .sh скрипт для запуска игры через PortProton с сохранением Steam DRM
+// При первом запуске скрипт запускает MO2 через PortProton чтобы открыть диалговое
+// окно догрузки пакетов, в последующих запусках патчит prefix из PortProton в Steam
+// упрощает доработку префикса и уменьшает занимаемое место на диске 4+Gb
 func CreateLaunchScript(installPath string) (string, error) {
 	scriptPath := filepath.Join(installPath, "start_rfad.sh")
 	mo2Exe := filepath.Join(installPath, "MO2", "ModOrganizerSKSE.exe")
@@ -256,4 +254,110 @@ export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/steam"
 		LogInfo("CreateLaunchScript: скрипт запуска успешно создан по пути %s", scriptPath)
 	}
 	return scriptPath, err
+}
+
+func CreateSteamPrelaunchScript(installPath string) (string, error) {
+	scriptPath := filepath.Join(installPath, "steam_prelaunch.sh")
+
+	// Здесь мы используем префикс RFAD_SE (как было в твоих логах PortProton)
+	scriptContent := fmt.Sprintf(`#!/usr/bin/env bash
+
+INSTALL_DIR="%s"
+MO2_EXE="$INSTALL_DIR/MO2/ModOrganizer.exe"
+
+# Пути префиксов
+PP_PREFIX="$HOME/PortProton/data/prefixes/RFAD_SE"
+STEAM_COMPAT_DIR="$HOME/.steam/steam/steamapps/compatdata/489830"
+STEAM_PFX="$STEAM_COMPAT_DIR/pfx"
+MARKER_FILE="$INSTALL_DIR/.pp_initialized"
+
+# 1. ПРОВЕРКА ПЕРВОГО ЗАПУСКА (Инициализация через PortProton)
+if [ ! -f "$MARKER_FILE" ]; then
+    echo "Первый запуск: инициализация префикса через PortProton..."
+    
+    # Запускаем MO2 через PortProton. 
+    # Он скачает Mono/Gecko и закроется (из-за SteamStub или bwrap), что нам и нужно!
+    /usr/bin/portproton "$MO2_EXE"
+    
+    # Ставим флаг, чтобы больше не вызывать PortProton
+    touch "$MARKER_FILE"
+    echo "Инициализация пакетов завершена."
+fi
+
+# 2. ПОДМЕНА ПРЕФИКСА НА ВРЕМЯ ИГРЫ
+mkdir -p "$STEAM_COMPAT_DIR"
+
+# Делаем бэкап оригинального префикса Steam (если он есть и это не наш симлинк)
+if [ -d "$STEAM_PFX" ] && [ ! -L "$STEAM_PFX" ]; then
+    mv "$STEAM_PFX" "${STEAM_PFX}_backup"
+fi
+
+# Прокидываем префикс PortProton в Steam
+if [ ! -L "$STEAM_PFX" ]; then
+    ln -s "$PP_PREFIX" "$STEAM_PFX"
+fi
+
+# 3. ЗАПУСК ИГРЫ ЧЕРЕЗ STEAM PROTON
+# Символ $@ выполнит то, что передал Steam (proton run ModOrganizer.exe ...)
+"$@"
+
+# 4. ОТКАТ ПРЕФИКСА ПОСЛЕ ЗАКРЫТИЯ ИГРЫ
+rm -f "$STEAM_PFX"
+if [ -d "${STEAM_PFX}_backup" ]; then
+    mv "${STEAM_PFX}_backup" "$STEAM_PFX"
+fi
+
+`, installPath)
+
+	err := os.WriteFile(scriptPath, []byte(scriptContent), 0755) // Делаем исполняемым
+	if err == nil {
+		LogInfo("CreateSteamPrelaunchScript: скрипт-обертка создан по пути %s", scriptPath)
+	}
+	return scriptPath, err
+}
+
+// CreateMO2PythonPlugin создает плагин для MO2, который генерирует маркер при запуске
+func CreateMO2PythonPlugin(installPath string) error {
+	pluginsDir := filepath.Join(installPath, "MO2", "plugins")
+	if err := os.MkdirAll(pluginsDir, 0755); err != nil {
+		return err
+	}
+
+	pluginPath := filepath.Join(pluginsDir, "rfad_linux_init.py")
+
+	pyCode := `import mobase
+import os
+
+class RFADLinuxInit(mobase.IPlugin):
+    def init(self, organizer: mobase.IOrganizer) -> bool:
+        try:
+            # __file__ указывает на MO2/plugins/rfad_linux_init.py
+            # Поднимаемся на 2 уровня выше, чтобы попасть в корень игры
+            marker_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".rfad_initialized"))
+            
+            # Создаем пустой файл-маркер (или обновляем дату изменения, если он есть)
+            with open(marker_path, 'a'):
+                pass
+        except Exception:
+            pass
+        return True
+
+    def name(self) -> str: return "RFAD Linux Init Marker"
+    def author(self) -> str: return "RFAD Installer"
+    def description(self) -> str: return "Generates initialization marker for Linux PortProton integration"
+    def version(self) -> mobase.VersionInfo: return mobase.VersionInfo(1,0,0,mobase.ReleaseType.FINAL)
+    def isActive(self) -> bool: return True
+    def settings(self): return []
+
+def createPlugin() -> mobase.IPlugin:
+    return RFADLinuxInit()
+`
+
+	err := os.WriteFile(pluginPath, []byte(pyCode), 0644)
+	if err == nil {
+		LogInfo("Python-плагин для MO2 успешно внедрен: %s", pluginPath)
+	} else {
+		LogError("Ошибка создания Python-плагина: %v", err)
+	}
+	return err
 }

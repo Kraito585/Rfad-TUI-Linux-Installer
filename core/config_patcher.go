@@ -16,7 +16,7 @@ type ConfigPatch struct {
 	InsertAfter   map[string]string
 }
 
-// ApplyPatches теперь сам решает, какие патчи нужны, на основе конфига
+// Правки конфигов ничего интересного
 func ApplyPatches(cfg *tui.InstallConfig, progressCallback func(percent float64, fileName string)) error {
 	patches := generatePatchList(cfg)
 	LogInfo("ApplyPatches: сгенерировано %d патчей для применения", len(patches))
@@ -43,7 +43,6 @@ func ApplyPatches(cfg *tui.InstallConfig, progressCallback func(percent float64,
 	return nil
 }
 
-// Внутренняя функция, скрытая от main.go
 func generatePatchList(cfg *tui.InstallConfig) []ConfigPatch {
 	patches := []ConfigPatch{
 		{

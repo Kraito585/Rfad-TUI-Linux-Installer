@@ -23,7 +23,7 @@ func getFileHash(filePath string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR, useNVAPI, useGameMode, useSteamFix bool) error {
+func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR, useNVAPI, useGameMode bool) error {
 	LogInfo("GeneratePPDB: генерация конфига для %s (Wine: %s)", targetExe, wineVersion)
 
 	ppdbName := targetExe + ".ppdb"
@@ -43,7 +43,6 @@ func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR,
 	sb.WriteString("export PW_PREFIX_NAME=\"RFAD_SE\"\n")
 
 	sb.WriteString("export PW_GUI_DISABLED_CS=\"1\"\n")
-
 	sb.WriteString("export PW_VULKAN_USE=\"6\"\n")
 
 	if hash != "" {
@@ -58,14 +57,10 @@ func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR,
 		sb.WriteString("export FILE_DESCRIPTION=\"Mod Organizer 2 GUI\"\n")
 	}
 
+	// Оставляем подмену библиотек (она нужна PortProton для правильной работы игры/MO2)
 	sb.WriteString("export WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\"\n")
 
-	if useSteamFix {
-		sb.WriteString("export START_FROM_STEAM=\"1\"\n")
-		sb.WriteString("export SteamAppId=\"489830\"\n")
-		sb.WriteString("export STEAM_APP_ID=\"489830\"\n")
-		sb.WriteString("export SteamGameId=\"489830\"\n")
-	}
+	// Блок if useSteamFix полностью удален!
 
 	if useFSR {
 		sb.WriteString("export WINE_FULLSCREEN_FSR=\"1\"\n")
@@ -82,12 +77,7 @@ func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR,
 	}
 
 	if strings.Contains(targetExe, "SKSE") {
-		// Передаем параметр БЕЗ внешних экранированных кавычек
-		// Это должно выглядеть в файле как: export LAUNCH_PARAMETERS=moshortcut://:SKSE
 		sb.WriteString("export LAUNCH_PARAMETERS=moshortcut://:SKSE\n")
-
-		// На всякий случай дублируем в PW_CUSTOM_ARGS, так как старые версии PortProton
-		// могут игнорировать LAUNCH_PARAMETERS
 		sb.WriteString("export PW_CUSTOM_ARGS=moshortcut://:SKSE\n")
 	}
 
