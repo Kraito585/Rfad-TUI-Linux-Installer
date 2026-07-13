@@ -2,6 +2,11 @@ package pages
 
 import (
 	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"rfad-installer/core"
 	"rfad-installer/tui"
 	"rfad-installer/tui/components"
 
@@ -11,16 +16,16 @@ import (
 
 type ChangePageMsg struct{ Page int }
 type StartInstallMsg struct{}
+type LogTickMsg time.Time // Сообщение для обновления логов по таймеру
 
 const (
-	PageInstallerPath = iota // 0
-	PageInstallPath          // 1
-	PageOptions              // 2
-	PageSummary              // 3
-	PageInstalling           // 4 (Экран прогресс-бара)
+	PageInstallerPath = iota
+	PageInstallPath
+	PageOptions
+	PageSummary
+	PageInstalling
 )
 
-// Теперь ProgressMsg — это структура, которая динамически переносит текст и процент
 type ProgressMsg struct {
 	Percent float64
 	Message string
@@ -36,28 +41,45 @@ type Index struct {
 	ActivePage int
 	startChan  chan *tui.InstallConfig
 
-	WindowWidth  int // Ширина окна
-	WindowHeight int // Высота окна
+	WindowWidth  int
+	WindowHeight int
 
-	// Экземпляры страниц
 	Page1 InstallerPathPage
 	Page2 InstallPathPage
 	Page3 OptionsPage
 	Page4 SummaryPage
 
-	// Состояние установки (от старого index.go)
 	Status components.StatusBar
 	Done   bool
 	Err    error
+
+	AsciiArt string
+	ShowLogs bool
+	LogLines string
+	BoxWidth int
 }
 
-func NewIndex(startChan chan *tui.InstallConfig) Index {
+func NewIndex(startChan chan *tui.InstallConfig, ascii string) Index {
 	cfg := tui.NewInstallConfig()
+
+	// Динамически вычисляем ширину на основе ASCII-арта
+	boxWidth := 70 // Минимальная ширина
+	if ascii != "" {
+		lines := strings.Split(ascii, "\n")
+		for _, line := range lines {
+			w := lipgloss.Width(line)
+			if w > boxWidth {
+				boxWidth = w
+			}
+		}
+	}
 
 	return Index{
 		Config:     cfg,
-		ActivePage: PageInstallerPath, // Начинаем с первой страницы
+		ActivePage: PageInstallerPath,
 		startChan:  startChan,
+		AsciiArt:   ascii,
+		BoxWidth:   boxWidth, // Сохраняем вычисленную ширину
 
 		Page1:  NewInstallerPathPage(cfg),
 		Page2:  NewInstallPathPage(cfg),
@@ -67,6 +89,26 @@ func NewIndex(startChan chan *tui.InstallConfig) Index {
 	}
 }
 
+// Функция-помощник для запуска таймера обновления логов
+func tickLogs() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return LogTickMsg(t)
+	})
+}
+
+// Читаем последние N строк из файла логов
+func tailLogs(path string, maxLines int) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "Ожидание логов..."
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m Index) Init() tea.Cmd {
 	return tea.Batch(m.Page1.Init(), m.Page2.Init(), m.Page3.Init())
 }
@@ -74,15 +116,30 @@ func (m Index) Init() tea.Cmd {
 func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// 1. Глобальные перехваты (Выход из программы)
+	// 1. Глобальные перехваты
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		if keyMsg.String() == "ctrl+c" {
+		switch keyMsg.String() {
+		case "ctrl+c":
 			return m, tea.Quit
+		case "i", "I", "ш", "Ш": // Добавили русскую раскладку на всякий случай
+			m.ShowLogs = !m.ShowLogs
+			if m.ShowLogs {
+				m.LogLines = tailLogs(core.LogPath(), 10)
+				return m, tickLogs() // Запускаем цикл обновления
+			}
+			return m, nil
 		}
 	}
 
-	// 2. Системные сообщения (Навигация и Прогресс-бар)
+	// 2. Системные сообщения
 	switch msg := msg.(type) {
+	case LogTickMsg:
+		if m.ShowLogs {
+			m.LogLines = tailLogs(core.LogPath(), 10)
+			cmds = append(cmds, tickLogs()) // Планируем следующий тик
+		}
+		return m, tea.Batch(cmds...)
+
 	case ChangePageMsg:
 		m.ActivePage = msg.Page
 		return m, nil
@@ -90,15 +147,11 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.WindowWidth = msg.Width
 		m.WindowHeight = msg.Height
-
-		// Наше главное окно будет шириной 70 символов.
-		// Отдаем статус-бару 62 символа, чтобы он идеально влез внутрь рамки.
-		m.Status.SetWidth(62)
+		m.Status.SetWidth(m.BoxWidth - 4)
 		return m, nil
 
 	case StartInstallMsg:
 		m.ActivePage = PageInstalling
-		// Отправляем конфиг в main.go через горутину, чтобы не заблокировать UI
 		go func() { m.startChan <- m.Config }()
 		return m, nil
 
@@ -110,7 +163,11 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ProgressMsg:
 		m.Status.Message = msg.Message
 		cmd := m.Status.SetPercent(msg.Percent)
-		return m, cmd
+		if m.ShowLogs {
+			m.LogLines = tailLogs(core.LogPath(), 10)
+		}
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
 
 	case DoneMsg:
 		m.Done = true
@@ -119,7 +176,7 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// 3. Маршрутизация нажатий клавиш в активную страницу
+	// 3. Маршрутизация нажатий
 	var cmd tea.Cmd
 	switch m.ActivePage {
 	case PageInstallerPath:
@@ -139,24 +196,30 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Index) View() string {
-	// Ждем, пока терминал отдаст свои размеры
 	if m.WindowWidth == 0 || m.WindowHeight == 0 {
 		return "Инициализация интерфейса..."
 	}
 
-	// Фиксируем ширину нашего "окна" установщика
-	boxWidth := 70
+	// Используем нашу динамическую ширину
+	boxWidth := m.BoxWidth
 
-	// 1. ЗАГОЛОВОК (Строго по центру рамки)
-	header := lipgloss.NewStyle().
-		Width(boxWidth).
-		Align(lipgloss.Center).
-		Foreground(lipgloss.Color("62")).
-		Bold(true).
-		MarginBottom(1).
-		Render("=== TUI Установщик RFAD SE ===")
+	// 1. ЗАГОЛОВОК (ASCII-арт или обычный текст)
+	var header string
+	if m.AsciiArt != "" {
+		asciiBlock := lipgloss.NewStyle().Align(lipgloss.Left).Render(m.AsciiArt)
+		header = lipgloss.PlaceHorizontal(boxWidth, lipgloss.Center, asciiBlock)
+		header = lipgloss.NewStyle().MarginBottom(1).Foreground(lipgloss.Color("62")).Render(header)
+	} else {
+		header = lipgloss.NewStyle().
+			Width(boxWidth).
+			Align(lipgloss.Center).
+			Foreground(lipgloss.Color("62")).
+			Bold(true).
+			MarginBottom(1).
+			Render("=== TUI Установщик RFAD SE ===")
+	}
 
-	// 2. КОНТЕНТ (По левому краю внутри рамки)
+	// 2. КОНТЕНТ ОСНОВНОГО ОКНА
 	var rawBody string
 	if m.Err != nil {
 		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
@@ -176,17 +239,13 @@ func (m Index) View() string {
 		}
 	}
 
-	// ХИТРОСТЬ ЦЕНТРИРОВАНИЯ:
-	// Сначала выравниваем сам текст по левому краю (собираем его в "монолитный блок")
 	bodyBlock := lipgloss.NewStyle().Align(lipgloss.Left).Render(rawBody)
-
-	// Теперь берем этот ровный блок и помещаем его точно в центр наших 70 символов
 	body := lipgloss.PlaceHorizontal(boxWidth, lipgloss.Center, bodyBlock)
 
-	// 3. ПОДВАЛ (По центру, серый цвет)
-	footerText := "Нажмите 'ctrl+c' для принудительного выхода."
+	// 3. ПОДВАЛ
+	footerText := "Нажмите 'i' для логов | 'ctrl+c' для выхода"
 	if m.Done {
-		footerText = "Нажмите 'ctrl+c' для выхода."
+		footerText = "Установка завершена. Нажмите 'ctrl+c' для выхода."
 	}
 	footer := lipgloss.NewStyle().
 		Width(boxWidth).
@@ -195,20 +254,50 @@ func (m Index) View() string {
 		MarginTop(1).
 		Render(footerText)
 
-	// Собираем всё в единый блок
-	ui := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	// 4. ДИСКЛЕЙМЕР (Разделительная черта и текст)
+	divider := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("237")). // Очень темный серый для черты
+		MarginTop(1).
+		MarginBottom(1).
+		Render(strings.Repeat("─", boxWidth))
 
-	// МАГИЯ: Оборачиваем собранный блок в красивую рамку!
+	disclaimerText := "Не является Официальным продуктом: Requiem For A Dream by Immersive Chicken,\nвсе фиксы были найдены официальным Discord сообществом RFAD"
+	disclaimer := lipgloss.NewStyle().
+		Width(boxWidth).
+		Align(lipgloss.Center).
+		Foreground(lipgloss.Color("239")). // Приглушенный серый для текста
+		Render(disclaimerText)
+
+	// Собираем главное окно
+	ui := lipgloss.JoinVertical(lipgloss.Left, header, body, footer, divider, disclaimer)
+
+	// ВЕРНУЛИ ОБЕРТКУ С РАМКОЙ
 	dialogBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")). // Фиолетовая рамка
-		Padding(1, 2).                          // Внутренние отступы от текста до рамки
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
 		Render(ui)
 
-	// Размещаем эту рамку по центру всего терминала
+	// 4. ОКНО ЛОГОВ (если включено)
+	finalUI := dialogBox
+	if m.ShowLogs {
+		logStyle := lipgloss.NewStyle().
+			Width(boxWidth+2). // Идеально выровнено по ширине с главным окном
+			Height(12).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(0, 1).
+			MarginTop(1).
+			Foreground(lipgloss.Color("248"))
+
+		logBox := logStyle.Render(m.LogLines)
+
+		finalUI = lipgloss.JoinVertical(lipgloss.Center, dialogBox, logBox)
+	}
+
 	return lipgloss.Place(
 		m.WindowWidth, m.WindowHeight,
 		lipgloss.Center, lipgloss.Center,
-		dialogBox,
+		finalUI,
 	)
 }

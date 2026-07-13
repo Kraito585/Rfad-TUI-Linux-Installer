@@ -181,7 +181,17 @@ func main() {
 
 	startChan := make(chan *tui.InstallConfig)
 
-	page := pages.NewIndex(startChan)
+	// Читаем ASCII арт из встроенных ресурсов
+	asciiBytes, err := bundledAssets.ReadFile("src/install.ascii")
+	asciiArt := ""
+	if err == nil {
+		asciiArt = string(asciiBytes)
+	} else {
+		core.LogWarn("Не удалось загрузить install.ascii: %v", err)
+	}
+
+	// Передаем asciiArt в NewIndex
+	page := pages.NewIndex(startChan, asciiArt)
 	p := tea.NewProgram(page, tea.WithInput(os.Stdin))
 
 	go func() {
@@ -351,24 +361,8 @@ func main() {
 
 		core.LogInfo("Патчинг завершён")
 
-		// === Этап 5: установка steam fix
-		core.LogInfo("=== ЭТАП 5: Steam Fix ===")
-
-		if cfg.UseSteamFix {
-			core.LogInfo("Применение Steam Fix...")
-			err := core.ApplySteamFix(cfg.InstallPath)
-			if err != nil {
-				core.LogError("Ошибка Steam Fix: %v", err)
-				p.Send(pages.ErrorMsg{Err: err})
-				return
-			}
-			core.LogInfo("Steam Fix применён успешно")
-		} else {
-			core.LogInfo("Steam Fix пропущен (отключён пользователем)")
-		}
-
-		// === Этап 6: Генерация .ppdb
-		core.LogInfo("=== ЭТАП 6: Генерация PPDB-файлов ===")
+		// === ЭТАП 5: Генерация PPDB-файлов (БЫВШИЙ ЭТАП 6) ===
+		core.LogInfo("=== ЭТАП 5: Генерация PPDB-файлов ===")
 		mo2Path := filepath.Join(cfg.InstallPath, "MO2")
 		orig := filepath.Join(mo2Path, "ModOrganizer.exe")
 		link := filepath.Join(mo2Path, "ModOrganizerSKSE.exe")
@@ -386,6 +380,39 @@ func main() {
 		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 		core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
+
+		// === ЭТАП 6: Установка steam fix ===
+		core.LogInfo("=== ЭТАП 6: Steam Fix ===")
+
+		if cfg.UseSteamFix {
+			core.LogInfo("Применение Steam Fix...")
+
+			err = core.ApplySteamFix(cfg.InstallPath, bundledAssets)
+			if err != nil {
+				core.LogError("Ошибка применения Steam Fix: %v", err)
+				p.Send(pages.ErrorMsg{Err: err})
+				return
+			}
+
+			steamExePath := "/usr/bin/portproton"
+
+			startDir := filepath.Join(cfg.InstallPath, "MO2")
+
+			targetExe := filepath.Join(startDir, "ModOrganizerSKSE.exe")
+			launchOptions := fmt.Sprintf("\"%s\"", targetExe)
+
+			err = core.AddToSteamShortcuts("RFAD Game (SKSE)", steamExePath, startDir, launchOptions)
+			if err != nil {
+				core.LogError("Ошибка добавления в Steam: %v", err)
+				p.Send(pages.ErrorMsg{Err: err})
+				return
+			}
+
+			core.RestartSteam()
+			core.LogInfo("Steam Fix применён успешно, Steam перезапущен")
+		} else {
+			core.LogInfo("Steam Fix пропущен (отключён пользователем)")
+		}
 
 		// === Этап 7: Создание шорткатов
 		core.LogInfo("=== ЭТАП 7: Создание ярлыков ===")

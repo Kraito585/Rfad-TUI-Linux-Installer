@@ -206,6 +206,10 @@ func EnablePlugin(gamePath string, pluginName string) error {
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		LogError("Ошибка при чтении потока сканером: %v", err)
+	}
+
 	// 3. Если не нашли, дописываем плагин со звездочкой
 	if !found {
 		// Переходим в конец файла для записи

@@ -62,6 +62,7 @@ func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR,
 
 	if useSteamFix {
 		sb.WriteString("export START_FROM_STEAM=\"1\"\n")
+		sb.WriteString("export STEAM_APP_ID=\"489830\"\n")
 	}
 
 	if useFSR {
