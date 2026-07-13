@@ -245,6 +245,7 @@ export STEAM_APP_ID="489830"
 export SteamAppId="489830"
 
 export START_FROM_STEAM=1
+export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/steam"
 
 /usr/bin/portproton "%s"
 `, mo2Exe)

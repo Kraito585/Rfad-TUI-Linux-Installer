@@ -26,17 +26,44 @@ func RunSystemChecks() (bool, bool, bool) {
 	core.LogInfo("=== Выполнение предполетных проверок ===")
 
 	if os.Geteuid() == 0 {
+		core.LogError("КРИТИЧЕСКАЯ ОШИБКА: Запуск от root запрещен!")
 		return false, false, false
 	}
-	if _, err := exec.LookPath("portproton"); err != nil {
+
+	hasPortProton := false
+
+	if _, err := exec.LookPath("portproton"); err == nil {
+		hasPortProton = true
+		core.LogInfo("PortProton найден в системном PATH")
+	} else {
+		home, _ := os.UserHomeDir()
+		localPP := filepath.Join(home, ".local", "bin", "portproton")
+		if _, err := os.Stat(localPP); err == nil {
+			hasPortProton = true
+			core.LogInfo("PortProton найден по локальному пути: %s", localPP)
+		} else {
+			if _, err := exec.LookPath("flatpak"); err == nil {
+				cmd := exec.Command("flatpak", "info", "ru.linux_gaming.PortProton")
+				if err := cmd.Run(); err == nil {
+					hasPortProton = true
+					core.LogInfo("PortProton найден в реестре Flatpak")
+				}
+			}
+		}
+	}
+
+	if !hasPortProton {
+		core.LogError("КРИТИЧЕСКАЯ ОШИБКА: PortProton не найден ни в PATH, ни в локальной папке, ни во Flatpak.")
 		return false, false, false
 	}
 
 	_, errGM := exec.LookPath("gamemoderun")
-	hasGameMode := errGM == nil
+	hasGameMode := (errGM == nil)
+	if hasGameMode {
+		core.LogInfo("gamemoderun найден в системе")
+	}
 
 	hasNVAPI := false
-
 	if _, err := os.Stat("/proc/driver/nvidia"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -44,17 +71,18 @@ func RunSystemChecks() (bool, bool, bool) {
 		cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=name", "--format=csv,noheader")
 		out, err := cmd.Output()
 		if err == nil {
-			gpuName := strings.ToUpper(string(out))
+			gpuName := strings.ToUpper(strings.TrimSpace(string(out)))
 			if strings.Contains(gpuName, "RTX 20") ||
 				strings.Contains(gpuName, "RTX 30") ||
 				strings.Contains(gpuName, "RTX 40") ||
 				strings.Contains(gpuName, "RTX A") {
 				hasNVAPI = true
+				core.LogInfo("Найдена видеокарта с поддержкой NVAPI: %s", gpuName)
 			}
 		}
 	}
 
-	core.LogInfo("Системные проверки: root=%v, portproton=%v, GameMode=%v, NVAPI=%v", false, true, hasGameMode, hasNVAPI)
+	// Если мы дошли сюда, значит PortProton точно есть (первый параметр = true)
 	return true, hasGameMode, hasNVAPI
 }
 
@@ -361,31 +389,32 @@ func main() {
 
 		core.LogInfo("Патчинг завершён")
 
-		// === ЭТАП 5: Генерация PPDB-файлов (БЫВШИЙ ЭТАП 6) ===
+		// === ЭТАП 5: Генерация PPDB-файлов ===
 		core.LogInfo("=== ЭТАП 5: Генерация PPDB-файлов ===")
 		mo2Path := filepath.Join(cfg.InstallPath, "MO2")
+		wineVersion := "GE-PROTON11-1"
 		orig := filepath.Join(mo2Path, "ModOrganizer.exe")
-		link := filepath.Join(mo2Path, "ModOrganizerSKSE.exe")
+		if !cfg.UseSteamFix {
+			link := filepath.Join(mo2Path, "ModOrganizerSKSE.exe")
 
-		os.Remove(link)
+			os.Remove(link)
 
-		err = os.Link(orig, link)
-		if err != nil {
-			p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания дубликата MO2: %v", err)})
-			return
+			err = os.Link(orig, link)
+			if err != nil {
+				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания дубликата MO2: %v", err)})
+				return
+			}
+			core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 		}
 
-		wineVersion := "GE-PROTON11-1"
-
 		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
-		core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
+
 		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 
-		// === ЭТАП 6: Установка steam fix ===
-		core.LogInfo("=== ЭТАП 6: Steam Fix ===")
-
+		// === ЭТАП 6: Steam Fix и интеграция со Steam ===
 		if cfg.UseSteamFix {
-			core.LogInfo("Применение Steam Fix...")
+			core.LogInfo("=== ЭТАП 6: Настройка ярлыка Steam ===")
+			core.LogInfo("Выбрана лицензионная версия. Применение Steam Fix...")
 
 			err = core.ApplySteamFix(cfg.InstallPath, bundledAssets)
 			if err != nil {
@@ -394,23 +423,48 @@ func main() {
 				return
 			}
 
-			scriptPath, err := core.CreateLaunchScript(cfg.InstallPath)
+			err = core.InstallGEProton("GE-Proton11-1")
 			if err != nil {
-				core.LogError("Ошибка создания bash-скрипта: %v", err)
+				core.LogError("ВНИМАНИЕ: Не удалось установить GE-Proton: %v", err)
 			}
 
-			startDir := cfg.InstallPath
+			mo2ExePath := filepath.Join(cfg.InstallPath, "MO2", "ModOrganizer.exe")
+			startDir := filepath.Join(cfg.InstallPath, "MO2")
 
-			err = core.AddToSteamShortcuts("RFAD Game (SKSE)", scriptPath, startDir, "")
+			// База, STEAM_APP_ID, APP ID оригинального скайрима, WINEDLLOVERRIDES, оптимальные либы для RFAD
+			launchOpts := "STEAM_APP_ID=489830 WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\" "
 
+			// FSR, если включен
+			if cfg.UseFSR {
+				launchOpts += "WINE_FULLSCREEN_FSR=1 WINE_FULLSCREEN_FSR_STRENGTH=2 "
+			}
+
+			// NVAPI, если потдерживается
+			if useNVAPI {
+				launchOpts += "PROTON_ENABLE_NVAPI=1 "
+			}
+
+			// gamemoderun, если потдерживается
+			if useGameMode {
+				launchOpts += "gamemoderun "
+			}
+
+			// rtcut://:SKSE, пропуск MO2
+			launchOpts += "%command% \"moshortcut://:SKSE\""
+
+			err = core.AddToSteamShortcuts("RFAD Game", mo2ExePath, startDir, launchOpts)
 			if err != nil {
-				core.LogError("Ошибка при добавлении в Steam: %v", err)
+				core.LogError("Ошибка при добавлении лицензионного ярлыка в Steam: %v", err)
+			} else {
+				core.LogInfo("Лицензионный ярлык успешно добавлен.")
 			}
 
 			core.RestartSteam()
-			core.LogInfo("Steam Fix применён успешно, Steam перезапущен")
+			core.LogInfo("Настройка Steam завершена, клиент перезапущен")
+
 		} else {
-			core.LogInfo("Steam Fix пропущен (отключён пользователем)")
+			core.LogInfo("=== ЭТАП 6: Steam Fix пропущен ===")
+			core.LogInfo("Пользователь выбрал пиратскую версию (запуск напрямую через PortProton)")
 		}
 
 		// === Этап 7: Создание шорткатов

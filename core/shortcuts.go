@@ -14,7 +14,6 @@ func CreateDesktopShortcuts(gamePath string, useSteamFix bool, assets embed.FS) 
 	menuDir := filepath.Join(home, ".local/share/applications")
 	os.MkdirAll(menuDir, 0755)
 
-	// 1. Извлекаем иконку для игры
 	iconGame := filepath.Join(gamePath, "rfad-tui-launcher.ico")
 	if icoData, err := assets.ReadFile("src/rfad-tui-launcher.ico"); err == nil {
 		os.WriteFile(iconGame, icoData, 0644)
@@ -31,21 +30,38 @@ func CreateDesktopShortcuts(gamePath string, useSteamFix bool, assets embed.FS) 
 		LogWarn("Не удалось извлечь иконку из ресурсов: %v", err)
 	}
 
-	shortcuts := []struct {
+	var shortcuts []struct {
 		name     string
 		exec     string
 		args     string
 		icon     string
 		filename string
-	}{
-		{"RFAD-Game", filepath.Join(gamePath, "MO2", "ModOrganizerSKSE.exe"), "moshortcut://:SKSE", iconGame, "rfad-game.desktop"},
-		{"RFAD-MO2", filepath.Join(gamePath, "MO2", "ModOrganizer.exe"), "", iconMO2, "rfad-mo2.desktop"},
 	}
 
-	execPrefix := "portproton"
+	// Базовый ярлык MO2 (нужен всегда, работает через PortProton)
+	mo2Exec := filepath.Join(gamePath, "MO2", "ModOrganizer.exe")
+
 	if useSteamFix {
-		execPrefix = "env START_FROM_STEAM=1 portproton"
+		// ЛИЦЕНЗИЯ
+		LogInfo("Лицензионная версия: ярлык запуска игры не создается, так как запуск должен идти строго через Steam.")
+
+		// Оставляем только ярлык для чистого MO2 (для настройки модов)
+		shortcuts = append(shortcuts, struct {
+			name, exec, args, icon, filename string
+		}{"RFAD-MO2", mo2Exec, "", iconMO2, "rfad-mo2.desktop"})
+
+	} else {
+		gameExec := filepath.Join(gamePath, "MO2", "ModOrganizerSKSE.exe")
+
+		shortcuts = append(shortcuts, struct {
+			name, exec, args, icon, filename string
+		}{"RFAD-Game", gameExec, "moshortcut://:SKSE", iconGame, "rfad-game.desktop"})
+
+		shortcuts = append(shortcuts, struct {
+			name, exec, args, icon, filename string
+		}{"RFAD-MO2", mo2Exec, "", iconMO2, "rfad-mo2.desktop"})
 	}
+	execPrefix := "/usr/bin/portproton"
 
 	for _, s := range shortcuts {
 		argsStr := ""
