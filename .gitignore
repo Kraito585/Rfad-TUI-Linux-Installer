@@ -2,3 +2,5 @@
 rfad-installer
 ./builds
 src/credentials.json
+*.zip
+local_cache/

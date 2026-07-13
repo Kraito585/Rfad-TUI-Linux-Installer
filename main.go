@@ -163,6 +163,11 @@ func openLogTerminal(logPath string) {
 	}
 }
 
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 func getFSRPatches(enabled bool, resolution string) []core.ConfigPatch {
 	if !enabled {
 		return nil
@@ -185,6 +190,7 @@ func main() {
 	ensureTerminal()
 
 	showLogs := flag.Bool("show-logs", false, "Открыть окно терминала с логами в реальном времени")
+	localTest := flag.Bool("local-test", false, "Использовать закешированные архивы для быстрого тестирования")
 	flag.Parse()
 
 	if err := core.InitLogger(); err != nil {
@@ -222,7 +228,6 @@ func main() {
 		cfg := <-startChan
 
 		folderID := "1JUOctbsugh2IIEUCWcBkupXYVYoJMg4G"
-		archiveDest := "update.zip"
 
 		gamePath := cfg.InstallPath
 
@@ -282,30 +287,42 @@ Tasks=`, winInstallPath, components)
 			return
 		}
 
-		err = core.DownloadArchive(
-			context.Background(),
-			creds,
-			folderID,
-			archiveDest,
-			func(percent float64) {
-				p.Send(pages.ProgressMsg{
-					Percent: percent,
-					Message: "Загрузка обновления...",
-				})
-			},
-		)
-		if err != nil {
-			core.LogError("Ошибка загрузки обновления: %v", err)
-			p.Send(pages.ErrorMsg{Err: err})
-			return
+		var updateArchivePath string
+		if *localTest {
+			os.MkdirAll("local_cache", 0755)
+			updateArchivePath = filepath.Join("local_cache", "update.zip")
+		} else {
+			updateArchivePath = filepath.Join(cfg.InstallPath, "update.zip")
 		}
-
-		core.LogInfo("Обновление загружено успешно: %s", archiveDest)
-		time.Sleep(500 * time.Millisecond)
+		if *localTest && fileExists(updateArchivePath) {
+			core.LogInfo("Локальный тест: найден кэшированный архив %s, загрузка пропущена", updateArchivePath)
+			p.Send(pages.ProgressMsg{Percent: 1.0, Message: "Используется локальный архив обновления..."})
+			time.Sleep(500 * time.Millisecond)
+		} else {
+			err = core.DownloadArchive(
+				context.Background(),
+				creds,
+				folderID,
+				updateArchivePath,
+				func(percent float64) {
+					p.Send(pages.ProgressMsg{
+						Percent: percent,
+						Message: "Загрузка обновления...",
+					})
+				},
+			)
+			if err != nil {
+				core.LogError("Ошибка загрузки обновления: %v", err)
+				p.Send(pages.ErrorMsg{Err: err})
+				return
+			}
+			core.LogInfo("Обновление загружено успешно: %s", updateArchivePath)
+			time.Sleep(500 * time.Millisecond)
+		}
 
 		err = core.ProcessUpdate(
 			gamePath,
-			archiveDest,
+			updateArchivePath,
 			bundledAssets,
 			func(percent float64, detail string) {
 				p.Send(pages.ProgressMsg{
@@ -318,6 +335,11 @@ Tasks=`, winInstallPath, components)
 			core.LogError("Ошибка распаковки обновления: %v", err)
 			p.Send(pages.ErrorMsg{Err: err})
 			return
+		}
+
+		// Удаляем только если это не локальный тест
+		if !*localTest {
+			os.Remove(updateArchivePath)
 		}
 
 		err = core.EnablePlugin(gamePath, "Rfad_Runes.esp")
@@ -339,20 +361,32 @@ Tasks=`, winInstallPath, components)
 			os.RemoveAll(oldPrefixPath)
 		}
 
-		prefixArchivePath := filepath.Join(cfg.InstallPath, "prefix.tar.gz")
-
-		err = core.DownloadPrefixDirectly(context.Background(), creds, prefixArchivePath, func(percent float64) {
-			p.Send(pages.ProgressMsg{
-				Percent: percent,
-				Message: fmt.Sprintf("Загрузка префикса: %.1f%%", percent*100),
-			})
-		})
-		if err != nil {
-			p.Send(pages.ErrorMsg{Err: err})
-			return
+		var prefixArchivePath string
+		if *localTest {
+			os.MkdirAll("local_cache", 0755)
+			prefixArchivePath = filepath.Join("local_cache", "prefix.tar.gz")
+		} else {
+			prefixArchivePath = filepath.Join(cfg.InstallPath, "prefix.tar.gz")
 		}
 
-		core.LogInfo("Префикс скачан: %s", prefixArchivePath)
+		if *localTest && fileExists(prefixArchivePath) {
+			core.LogInfo("Локальный тест: найден кэшированный префикс %s, загрузка пропущена", prefixArchivePath)
+			p.Send(pages.ProgressMsg{Percent: 1.0, Message: "Используется локальный архив префикса..."})
+			time.Sleep(500 * time.Millisecond)
+		} else {
+			err = core.DownloadPrefixDirectly(context.Background(), creds, prefixArchivePath, func(percent float64) {
+				p.Send(pages.ProgressMsg{
+					Percent: percent,
+					Message: fmt.Sprintf("Загрузка префикса: %.1f%%", percent*100),
+				})
+			})
+			if err != nil {
+				p.Send(pages.ErrorMsg{Err: err})
+				return
+			}
+			core.LogInfo("Префикс скачан: %s", prefixArchivePath)
+		}
+
 		err = core.ExtractPrefix(prefixArchivePath, func(fileName string) {
 			p.Send(pages.ProgressMsg{
 				Percent: -1,
@@ -365,8 +399,13 @@ Tasks=`, winInstallPath, components)
 			return
 		}
 
-		os.Remove(prefixArchivePath)
-		core.LogInfo("Распаковка префикса завершена, архив удалён")
+		// Не удаляем префикс, если идет тест
+		if !*localTest {
+			os.Remove(prefixArchivePath)
+			core.LogInfo("Распаковка префикса завершена, архив удалён")
+		} else {
+			core.LogInfo("Распаковка префикса завершена, локальный архив сохранён (режим --local-test)")
+		}
 
 		// === ЭТАП 4: ПРИМЕНЕНИЕ ФИКСОВ КОНФИГУРАЦИИ ===
 		core.LogInfo("=== ЭТАП 4: Патчинг конфигурации ===")
@@ -393,7 +432,7 @@ Tasks=`, winInstallPath, components)
 		orig := filepath.Join(mo2Path, "ModOrganizer.exe")
 
 		if cfg.UseSteamFix {
-			// 1. Внедряем Python-плагин для генерации маркера
+			// Внедряем Python-плагин для генерации маркера
 			// Необходим для коректного запуска RFAD из steam в случае если mo2
 			// был запущен раньше чем игра, поскольку в запуск игры вшит одноразовый старт mo2
 			// для открытия контекстного окна portproton с дозогрузкой библиотек
@@ -401,7 +440,7 @@ Tasks=`, winInstallPath, components)
 				core.LogWarn("Не удалось создать Python-плагин: %v", err)
 			}
 		} else {
-			// 2. Генерация хардлинка для пиратки
+			// Генерация хардлинка для пиратки
 			link := filepath.Join(mo2Path, "ModOrganizerSKSE.exe")
 			os.Remove(link)
 			if err = os.Link(orig, link); err != nil {
@@ -411,67 +450,79 @@ Tasks=`, winInstallPath, components)
 			core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode)
 		}
 
-		// 3. Базовый PPDB (нужен всем)
 		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode)
 
 		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
 
 		// === ЭТАП 6: Steam Fix и интеграция со Steam ===
+
 		if cfg.UseSteamFix {
 			core.LogInfo("=== ЭТАП 6: Настройка ярлыка Steam ===")
-			core.LogInfo("Выбрана лицензионная версия. Применение Steam Fix...")
 
-			err = core.ApplySteamFix(cfg.InstallPath, bundledAssets)
-			if err != nil {
-				core.LogError("ВНИМАНИЕ: Не удалось преминить Steam Fix: %v", err)
-				return
-			}
+			// 1. Ставим установку на паузу и спрашиваем пользователя
+			core.LogInfo("Ожидание подтверждения на закрытие Steam...")
+			replyChan := make(chan bool)
+			p.Send(pages.PromptSteamCloseMsg{
+				ReplyChan: replyChan,
+			})
 
-			err = core.InstallGEProton("GE-Proton11-1")
-			if err != nil {
-				core.LogError("ВНИМАНИЕ: Не удалось установить GE-Proton: %v", err)
-			}
+			// Горутина замирает здесь, пока UI не пришлет true или false
+			shouldContinue := <-replyChan
 
-			// Скрипт для использования префикса распаковоного в PortProton экономия 4 гб на диске
-			// дополнительная горантия целосности prefix и дозогрузка недостоющих пакетов через PortProton
-			prelaunchScript, err := core.CreateSteamPrelaunchScript(cfg.InstallPath)
-			if err != nil {
-				core.LogError("Ошибка создания prelaunch-скрипта: %v", err)
-			}
-
-			mo2ExePath := filepath.Join(cfg.InstallPath, "MO2", "ModOrganizer.exe")
-			startDir := filepath.Join(cfg.InstallPath, "MO2")
-
-			// ДИНАМИЧЕСКАЯ СБОРКА ФЛАГОВ ЗАПУСКА
-			launchOpts := "STEAM_APP_ID=489830 WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\" "
-
-			if cfg.UseFSR {
-				launchOpts += "WINE_FULLSCREEN_FSR=1 WINE_FULLSCREEN_FSR_STRENGTH=2 "
-			}
-
-			if useNVAPI {
-				launchOpts += "PROTON_ENABLE_NVAPI=1 "
-			}
-
-			if useGameMode {
-				launchOpts += "gamemoderun "
-			}
-
-			launchOpts += fmt.Sprintf("bash \"%s\" %%command%% \"moshortcut://:SKSE\"", prelaunchScript)
-
-			err = core.AddToSteamShortcuts("RFAD Game (License)", mo2ExePath, startDir, launchOpts)
-			if err != nil {
-				core.LogError("Ошибка при добавлении лицензионного ярлыка в Steam: %v", err)
+			if !shouldContinue {
+				core.LogWarn("Пользователь отказался закрывать Steam. Интеграция пропущена.")
+				// Пользователь отказался — пропускаем этот этап, но не прерываем всю установку
 			} else {
-				core.LogInfo("Лицензионный ярлык успешно добавлен.")
+				core.LogInfo("Пользователь дал согласие. Закрываем Steam...")
+				//Архив взят из гайда:
+				//https://steamcommunity.com/sharedfiles/filedetails/?id=3317990776
+				err = core.ApplySteamFix(cfg.InstallPath, bundledAssets)
+				if err != nil {
+					core.LogError("ВНИМАНИЕ: Не удалось преминить Steam Fix: %v", err)
+					return
+				}
+
+				err = core.InstallGEProton("GE-Proton11-1")
+				if err != nil {
+					core.LogError("ВНИМАНИЕ: Не удалось установить GE-Proton: %v", err)
+				}
+
+				// Скрипт для использования префикса распаковоного в PortProton экономия 4 гб на диске
+				// дополнительная горантия целосности prefix и дозогрузка недостоющих пакетов через PortProton
+				prelaunchScript, err := core.CreateSteamPrelaunchScript(cfg.InstallPath)
+				if err != nil {
+					core.LogError("Ошибка создания prelaunch-скрипта: %v", err)
+				}
+
+				mo2ExePath := filepath.Join(cfg.InstallPath, "MO2", "ModOrganizer.exe")
+				startDir := filepath.Join(cfg.InstallPath, "MO2")
+
+				// ДИНАМИЧЕСКАЯ СБОРКА ФЛАГОВ ЗАПУСКА
+				launchOpts := "STEAM_APP_ID=489830 WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\" "
+
+				if cfg.UseFSR {
+					launchOpts += "WINE_FULLSCREEN_FSR=1 WINE_FULLSCREEN_FSR_STRENGTH=2 "
+				}
+				// Возможно в будующем добавлю перенастройку модов на подтержку CUDA
+				if useNVAPI {
+					launchOpts += "PROTON_ENABLE_NVAPI=1 "
+				}
+
+				if useGameMode {
+					launchOpts += "gamemoderun "
+				}
+
+				launchOpts += fmt.Sprintf("bash \"%s\" %%command%% \"moshortcut://:SKSE\"", prelaunchScript)
+
+				err = core.AddToSteamShortcuts("RFAD Game (License)", mo2ExePath, startDir, launchOpts)
+				if err != nil {
+					core.LogError("Ошибка при добавлении лицензионного ярлыка в Steam: %v", err)
+				} else {
+					core.LogInfo("Лицензионный ярлык успешно добавлен.")
+				}
 			}
-
-			core.RestartSteam()
-			core.LogInfo("Настройка Steam завершена, клиент перезапущен")
-
 		} else {
 			core.LogInfo("=== ЭТАП 6: Steam Fix пропущен ===")
-			core.LogInfo("Пользователь выбрал пиратскую версию (запуск напрямую через PortProton)")
 		}
 
 		// === Этап 7: Создание шорткатов
@@ -489,6 +540,7 @@ Tasks=`, winInstallPath, components)
 		}
 
 		core.LogInfo("=== УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО ===")
+
 		p.Send(pages.DoneMsg{})
 	}()
 

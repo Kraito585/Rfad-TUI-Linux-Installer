@@ -9,6 +9,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// === Пауза в установке ===
+type PromptSteamCloseMsg struct {
+	ReplyChan chan bool
+}
+
 // === СТРАНИЦА 1: Путь к инсталлятору ===
 type InstallerPathPage struct {
 	Config *tui.InstallConfig

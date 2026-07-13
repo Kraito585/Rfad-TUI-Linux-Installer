@@ -16,7 +16,7 @@ import (
 
 type ChangePageMsg struct{ Page int }
 type StartInstallMsg struct{}
-type LogTickMsg time.Time // Сообщение для обновления логов по таймеру
+type LogTickMsg time.Time
 
 const (
 	PageInstallerPath = iota
@@ -24,6 +24,7 @@ const (
 	PageOptions
 	PageSummary
 	PageInstalling
+	PageAskingSteamClose // НОВОЕ СОСТОЯНИЕ: Вопрос о закрытии Steam
 )
 
 type ProgressMsg struct {
@@ -32,14 +33,16 @@ type ProgressMsg struct {
 }
 
 type DoneMsg struct{}
+
 type ErrorMsg struct {
 	Err error
 }
 
 type Index struct {
-	Config     *tui.InstallConfig
-	ActivePage int
-	startChan  chan *tui.InstallConfig
+	Config         *tui.InstallConfig
+	ActivePage     int
+	startChan      chan *tui.InstallConfig
+	steamReplyChan chan bool // Канал для ответа горутине
 
 	WindowWidth  int
 	WindowHeight int
@@ -61,9 +64,8 @@ type Index struct {
 
 func NewIndex(startChan chan *tui.InstallConfig, ascii string) Index {
 	cfg := tui.NewInstallConfig()
+	boxWidth := 70
 
-	// Динамически вычисляем ширину на основе ASCII-арта
-	boxWidth := 70 // Минимальная ширина
 	if ascii != "" {
 		lines := strings.Split(ascii, "\n")
 		for _, line := range lines {
@@ -79,7 +81,7 @@ func NewIndex(startChan chan *tui.InstallConfig, ascii string) Index {
 		ActivePage: PageInstallerPath,
 		startChan:  startChan,
 		AsciiArt:   ascii,
-		BoxWidth:   boxWidth, // Сохраняем вычисленную ширину
+		BoxWidth:   boxWidth,
 
 		Page1:  NewInstallerPathPage(cfg),
 		Page2:  NewInstallPathPage(cfg),
@@ -89,18 +91,16 @@ func NewIndex(startChan chan *tui.InstallConfig, ascii string) Index {
 	}
 }
 
-// Функция-помощник для запуска таймера обновления логов
 func tickLogs() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return LogTickMsg(t)
 	})
 }
 
-// Читаем последние N строк из файла логов
 func tailLogs(path string, maxLines int) string {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "Ожидание логов..."
+		return " Чтение логов..."
 	}
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	if len(lines) > maxLines {
@@ -116,27 +116,53 @@ func (m Index) Init() tea.Cmd {
 func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// 1. Глобальные перехваты
+	// 1. Обработка глобальных нажатий клавиш
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+
+		// Если мы находимся на экране вопроса о Steam, перехватываем клавиши
+		if m.ActivePage == PageAskingSteamClose {
+			switch keyMsg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "y", "д", "enter": // Согласие
+				if m.steamReplyChan != nil {
+					m.steamReplyChan <- true
+					m.steamReplyChan = nil
+				}
+				m.ActivePage = PageInstalling // Возвращаемся к бару установки
+				return m, nil
+			case "n", "н", "esc": // Отказ
+				if m.steamReplyChan != nil {
+					m.steamReplyChan <- false
+					m.steamReplyChan = nil
+				}
+				m.ActivePage = PageInstalling // Возвращаемся к бару установки
+				return m, nil
+			}
+			// Блокируем остальные клавиши на этом экране
+			return m, nil
+		}
+
+		// Стандартная обработка для остальных экранов
 		switch keyMsg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
-		case "i", "I", "ш", "Ш": // Добавили русскую раскладку на всякий случай
+		case "i", "I", "ш", "Ш":
 			m.ShowLogs = !m.ShowLogs
 			if m.ShowLogs {
 				m.LogLines = tailLogs(core.LogPath(), 10)
-				return m, tickLogs() // Запускаем цикл обновления
+				return m, tickLogs()
 			}
 			return m, nil
 		}
 	}
 
-	// 2. Системные сообщения
+	// 2. Обработка системных сообщений
 	switch msg := msg.(type) {
 	case LogTickMsg:
 		if m.ShowLogs {
 			m.LogLines = tailLogs(core.LogPath(), 10)
-			cmds = append(cmds, tickLogs()) // Планируем следующий тик
+			cmds = append(cmds, tickLogs())
 		}
 		return m, tea.Batch(cmds...)
 
@@ -152,12 +178,20 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StartInstallMsg:
 		m.ActivePage = PageInstalling
-		go func() { m.startChan <- m.Config }()
+		go func() {
+			m.startChan <- m.Config
+		}()
+		return m, nil
+
+	case PromptSteamCloseMsg:
+		// Ловим сообщение из горутины, сохраняем канал и меняем экран
+		m.steamReplyChan = msg.ReplyChan
+		m.ActivePage = PageAskingSteamClose
 		return m, nil
 
 	case ErrorMsg:
 		m.Err = msg.Err
-		m.Status.Message = "Произошла критическая ошибка!"
+		m.Status.Message = " Произошла ошибка!"
 		return m, nil
 
 	case ProgressMsg:
@@ -171,12 +205,12 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DoneMsg:
 		m.Done = true
-		m.Status.Message = "Установка полностью завершена!"
+		m.Status.Message = " Установка успешно завершена!"
 		m.Status.SetPercent(1.0)
 		return m, nil
 	}
 
-	// 3. Маршрутизация нажатий
+	// 3. Маршрутизация обновлений по страницам
 	var cmd tea.Cmd
 	switch m.ActivePage {
 	case PageInstallerPath:
@@ -197,13 +231,12 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Index) View() string {
 	if m.WindowWidth == 0 || m.WindowHeight == 0 {
-		return "Инициализация интерфейса..."
+		return " Инициализация терминала..."
 	}
 
-	// Используем нашу динамическую ширину
 	boxWidth := m.BoxWidth
 
-	// 1. ЗАГОЛОВОК (ASCII-арт или обычный текст)
+	// 1. Шапка (ASCII-арт)
 	var header string
 	if m.AsciiArt != "" {
 		asciiBlock := lipgloss.NewStyle().Align(lipgloss.Left).Render(m.AsciiArt)
@@ -216,14 +249,14 @@ func (m Index) View() string {
 			Foreground(lipgloss.Color("62")).
 			Bold(true).
 			MarginBottom(1).
-			Render("=== TUI Установщик RFAD SE ===")
+			Render("=== TUI УСТАНОВЩИК RFAD SE ===")
 	}
 
-	// 2. КОНТЕНТ ОСНОВНОГО ОКНА
+	// 2. Тело (Текущий экран)
 	var rawBody string
 	if m.Err != nil {
 		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-		rawBody = errorStyle.Render(fmt.Sprintf("ОШИБКА: %v", m.Err))
+		rawBody = errorStyle.Render(fmt.Sprintf(" ОШИБКА: %v", m.Err))
 	} else {
 		switch m.ActivePage {
 		case PageInstallerPath:
@@ -236,16 +269,25 @@ func (m Index) View() string {
 			rawBody = m.Page4.View()
 		case PageInstalling:
 			rawBody = m.Status.View()
+		case PageAskingSteamClose:
+			// Отрисовка нативного предупреждения TUI
+			warning := "\n  ВНИМАНИЕ!\n\n" +
+				"  Для интеграции игры в библиотеку необходимо закрыть клиент Steam.\n" +
+				"  Убедитесь, что у вас не скачиваются другие игры.\n\n" +
+				"  Продолжить и закрыть Steam прямо сейчас?\n\n" +
+				"  [Y / Enter] Да, закрыть Steam и продолжить\n" +
+				"  [N / Esc]   Нет, пропустить интеграцию"
+			rawBody = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true).Render(warning)
 		}
 	}
 
 	bodyBlock := lipgloss.NewStyle().Align(lipgloss.Left).Render(rawBody)
 	body := lipgloss.PlaceHorizontal(boxWidth, lipgloss.Center, bodyBlock)
 
-	// 3. ПОДВАЛ
-	footerText := "Нажмите 'i' для логов | 'ctrl+c' для выхода"
+	// 3. Подвал
+	footerText := " Нажмите 'i' для логов | 'ctrl+c' для выхода "
 	if m.Done {
-		footerText = "Установка завершена. Нажмите 'ctrl+c' для выхода."
+		footerText = " Нажмите 'ctrl+c' для выхода "
 	}
 	footer := lipgloss.NewStyle().
 		Width(boxWidth).
@@ -254,50 +296,46 @@ func (m Index) View() string {
 		MarginTop(1).
 		Render(footerText)
 
-	// 4. ДИСКЛЕЙМЕР (Разделительная черта и текст)
 	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("237")). // Очень темный серый для черты
+		Foreground(lipgloss.Color("237")).
 		MarginTop(1).
 		MarginBottom(1).
 		Render(strings.Repeat("─", boxWidth))
 
-	disclaimerText := "Не является Официальным продуктом: Requiem For A Dream by Immersive Chicken,\nвсе фиксы были найдены официальным Discord сообществом RFAD"
+	disclaimerText := " Не является Официальным продуктом: Requiem For A Dream by Immersive Chicken,\n все фиксы были найдены официальным Discord сообществом RFAD"
 	disclaimer := lipgloss.NewStyle().
 		Width(boxWidth).
 		Align(lipgloss.Center).
-		Foreground(lipgloss.Color("239")). // Приглушенный серый для текста
+		Foreground(lipgloss.Color("239")).
 		Render(disclaimerText)
 
-	// Собираем главное окно
 	ui := lipgloss.JoinVertical(lipgloss.Left, header, body, footer, divider, disclaimer)
 
-	// ВЕРНУЛИ ОБЕРТКУ С РАМКОЙ
 	dialogBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62")).
 		Padding(1, 2).
 		Render(ui)
 
-	// 4. ОКНО ЛОГОВ (если включено)
+	// 4. Панель логов
 	finalUI := dialogBox
 	if m.ShowLogs {
 		logStyle := lipgloss.NewStyle().
-			Width(boxWidth+2). // Идеально выровнено по ширине с главным окном
-			Height(12).
+			Width(boxWidth+2).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("240")).
 			Padding(0, 1).
 			MarginTop(1).
 			Foreground(lipgloss.Color("248"))
-
 		logBox := logStyle.Render(m.LogLines)
-
 		finalUI = lipgloss.JoinVertical(lipgloss.Center, dialogBox, logBox)
 	}
 
 	return lipgloss.Place(
-		m.WindowWidth, m.WindowHeight,
-		lipgloss.Center, lipgloss.Center,
+		m.WindowWidth,
+		m.WindowHeight,
+		lipgloss.Center,
+		lipgloss.Center,
 		finalUI,
 	)
 }
