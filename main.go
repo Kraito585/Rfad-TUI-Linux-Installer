@@ -394,18 +394,17 @@ func main() {
 				return
 			}
 
-			steamExePath := "/usr/bin/portproton"
-
-			startDir := filepath.Join(cfg.InstallPath, "MO2")
-
-			targetExe := filepath.Join(startDir, "ModOrganizerSKSE.exe")
-			launchOptions := fmt.Sprintf("\"%s\"", targetExe)
-
-			err = core.AddToSteamShortcuts("RFAD Game (SKSE)", steamExePath, startDir, launchOptions)
+			scriptPath, err := core.CreateLaunchScript(cfg.InstallPath)
 			if err != nil {
-				core.LogError("Ошибка добавления в Steam: %v", err)
-				p.Send(pages.ErrorMsg{Err: err})
-				return
+				core.LogError("Ошибка создания bash-скрипта: %v", err)
+			}
+
+			startDir := cfg.InstallPath
+
+			err = core.AddToSteamShortcuts("RFAD Game (SKSE)", scriptPath, startDir, "")
+
+			if err != nil {
+				core.LogError("Ошибка при добавлении в Steam: %v", err)
 			}
 
 			core.RestartSteam()
