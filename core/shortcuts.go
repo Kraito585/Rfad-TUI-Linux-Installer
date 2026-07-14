@@ -4,14 +4,30 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
+
+func GetDesktopDir() string {
+	home, _ := os.UserHomeDir()
+
+	cmd := exec.Command("xdg-user-dir", "DESKTOP")
+	out, err := cmd.Output()
+	if err == nil {
+		path := strings.TrimSpace(string(out))
+		if path != "" && path != home {
+			return path
+		}
+	}
+	return filepath.Join(home, "Desktop")
+}
 
 func CreateDesktopShortcuts(gamePath string, useSteamFix bool, assets embed.FS) error {
 	LogInfo("CreateDesktopShortcuts: создание ярлыков, gamePath=%s, steamFix=%v", gamePath, useSteamFix)
+	desktopDir := GetDesktopDir()
 	home, _ := os.UserHomeDir()
-	desktopDir := filepath.Join(home, "Desktop")
-	menuDir := filepath.Join(home, ".local/share/applications")
+	menuDir := filepath.Join(home, ".local", "share", "applications")
 	os.MkdirAll(menuDir, 0755)
 
 	iconGame := filepath.Join(gamePath, "rfad-tui-launcher.ico")

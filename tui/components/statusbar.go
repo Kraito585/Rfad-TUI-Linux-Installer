@@ -63,13 +63,21 @@ func (s StatusBar) View() string {
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		PaddingTop(0).    // Сверху отступ не нужен (там есть \n\n в тексте)
-		PaddingBottom(1). // Тот самый эквивалент margin-bottom в CSS
+		PaddingTop(0).
+		PaddingBottom(1).
 		PaddingLeft(1).
 		PaddingRight(1).
 		BorderForeground(lipgloss.Color("62")).
 		Width(s.width)
 
-	content := fmt.Sprintf("%s\n\n%s", s.Message, s.progBar.View())
+	msgStyle := lipgloss.NewStyle().
+		Height(3).
+		Width(s.width - 4) // Вычитаем ширину рамок и внутренних отступов
+
+	msgBox := msgStyle.Render(s.Message)
+
+	// Убираем двойной \n\n, так как msgBox теперь сам держит нужную дистанцию
+	content := fmt.Sprintf("%s\n%s", msgBox, s.progBar.View())
+
 	return style.Render(content)
 }

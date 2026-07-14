@@ -52,15 +52,39 @@ func generatePatchList(cfg *tui.InstallConfig) []ConfigPatch {
 	}
 
 	if cfg.UseFSR {
+		var finalW, finalH string
+
+		// Высчитываем итоговое разрешение рендера на основе выбранного уровня FSR
+		switch cfg.FSRLevel {
+		case 1: // 75% от базового разрешения
+			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*0.75))
+			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*0.75))
+		case 2: // 50% от базового разрешения
+			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*0.50))
+			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*0.50))
+		case 3: // 25% от базового разрешения (максимальная производительность)
+			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*0.25))
+			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*0.25))
+		case 4: // Своё значение (ручной ввод пользователя)
+			finalW = cfg.ResWidth
+			finalH = cfg.ResHeight
+		default:
+			// Фолбэк на случай непредвиденных ошибок (ставим 75%)
+			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*0.75))
+			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*0.75))
+		}
+
+		// Патчим SkyrimPrefs.ini
 		patches = append(patches, ConfigPatch{
 			TargetFile: "MO2/profiles/RFAD_SE/SkyrimPrefs.ini",
 			ReplacePrefix: map[string]string{
-				"iSize W=": fmt.Sprintf("iSize W=%s", cfg.ResWidth),
-				"iSize H=": fmt.Sprintf("iSize H=%s", cfg.ResHeight),
+				"iSize W=": fmt.Sprintf("iSize W=%s", finalW),
+				"iSize H=": fmt.Sprintf("iSize H=%s", finalH),
 			},
 		})
 
-		resString := fmt.Sprintf("Resolution = %sx%s", cfg.ResWidth, cfg.ResHeight)
+		// Патчим SSE Display Tweaks
+		resString := fmt.Sprintf("Resolution = %sx%s", finalW, finalH)
 		patches = append(patches, ConfigPatch{
 			TargetFile: "MO2/mods/SSE Display Tweaks/SKSE/Plugins/SSEDisplayTweaks.ini",
 			Replace: map[string]string{
@@ -75,7 +99,6 @@ func generatePatchList(cfg *tui.InstallConfig) []ConfigPatch {
 
 	return patches
 }
-
 func applySinglePatch(filePath string, patch ConfigPatch) error {
 	file, err := os.Open(filePath)
 	if err != nil {

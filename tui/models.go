@@ -7,10 +7,21 @@ type InstallConfig struct {
 
 	GraphicsMod     string // Страница 3
 	UseFSR          bool   // Страница 3
+	FSRLevel        int    // Страница 3
+	BaseWidth       int
+	BaseHeight      int
 	ResWidth        string // Страница 3
 	ResHeight       string // Страница 3
 	UseSteamFix     bool   // Страница 3
 	CreateShortcuts bool   // Страница 3
+}
+
+// SystemChecks хранит результаты предполётных проверок
+type SystemChecks struct {
+	IsSudo      bool
+	HasWine     bool
+	HasGameMode bool
+	HasNVAPI    bool
 }
 
 // NewInstallConfig возвращает конфиг с дефолтными значениями
@@ -18,6 +29,9 @@ func NewInstallConfig() *InstallConfig {
 	return &InstallConfig{
 		GraphicsMod:     "ENB",
 		UseFSR:          false,
+		FSRLevel:        1,
+		BaseWidth:       1920,
+		BaseHeight:      1080,
 		ResWidth:        "1920",
 		ResHeight:       "1080",
 		UseSteamFix:     false,

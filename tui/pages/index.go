@@ -19,12 +19,13 @@ type StartInstallMsg struct{}
 type LogTickMsg time.Time
 
 const (
-	PageInstallerPath = iota
+	PageSystemChecks = iota
+	PageInstallerPath
 	PageInstallPath
 	PageOptions
 	PageSummary
 	PageInstalling
-	PageAskingSteamClose // НОВОЕ СОСТОЯНИЕ: Вопрос о закрытии Steam
+	PageAskingSteamClose
 )
 
 type ProgressMsg struct {
@@ -40,13 +41,15 @@ type ErrorMsg struct {
 
 type Index struct {
 	Config         *tui.InstallConfig
+	SystemChecks   tui.SystemChecks
 	ActivePage     int
 	startChan      chan *tui.InstallConfig
-	steamReplyChan chan bool // Канал для ответа горутине
+	steamReplyChan chan bool
 
 	WindowWidth  int
 	WindowHeight int
 
+	Page0 SystemChecksPage
 	Page1 InstallerPathPage
 	Page2 InstallPathPage
 	Page3 OptionsPage
@@ -62,7 +65,7 @@ type Index struct {
 	BoxWidth int
 }
 
-func NewIndex(startChan chan *tui.InstallConfig, ascii string) Index {
+func NewIndex(startChan chan *tui.InstallConfig, ascii string, isSudo, hasWine, hasGameMode, hasNVAPI bool) Index {
 	cfg := tui.NewInstallConfig()
 	boxWidth := 70
 
@@ -76,13 +79,22 @@ func NewIndex(startChan chan *tui.InstallConfig, ascii string) Index {
 		}
 	}
 
-	return Index{
-		Config:     cfg,
-		ActivePage: PageInstallerPath,
-		startChan:  startChan,
-		AsciiArt:   ascii,
-		BoxWidth:   boxWidth,
+	checks := tui.SystemChecks{
+		IsSudo:      isSudo,
+		HasWine:     hasWine,
+		HasGameMode: hasGameMode,
+		HasNVAPI:    hasNVAPI,
+	}
 
+	return Index{
+		Config:       cfg,
+		SystemChecks: checks,
+		ActivePage:   PageSystemChecks,
+		startChan:    startChan,
+		AsciiArt:     ascii,
+		BoxWidth:     boxWidth,
+
+		Page0:  NewSystemChecksPage(checks),
 		Page1:  NewInstallerPathPage(cfg),
 		Page2:  NewInstallPathPage(cfg),
 		Page3:  NewOptionsPage(cfg),
@@ -110,7 +122,7 @@ func tailLogs(path string, maxLines int) string {
 }
 
 func (m Index) Init() tea.Cmd {
-	return tea.Batch(m.Page1.Init(), m.Page2.Init(), m.Page3.Init())
+	return tea.Batch(m.Page0.Init(), m.Page1.Init(), m.Page2.Init(), m.Page3.Init())
 }
 
 func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -119,27 +131,45 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// 1. Обработка глобальных нажатий клавиш
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 
+		// Блокировка Enter на странице системных проверок при критических ошибках
+		if m.ActivePage == PageSystemChecks {
+			// Если sudo — Enter не работает, только Ctrl+C
+			if m.SystemChecks.IsSudo {
+				if keyMsg.String() == "ctrl+c" {
+					return m, tea.Quit
+				}
+				return m, nil
+			}
+			// Если нет wine — Enter не работает, только Ctrl+C
+			if !m.SystemChecks.HasWine {
+				if keyMsg.String() == "ctrl+c" {
+					return m, tea.Quit
+				}
+				return m, nil
+			}
+			// Иначе Enter разрешён — обрабатывается в Update страницы
+		}
+
 		// Если мы находимся на экране вопроса о Steam, перехватываем клавиши
 		if m.ActivePage == PageAskingSteamClose {
 			switch keyMsg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
-			case "y", "д", "enter": // Согласие
+			case "y", "д", "enter":
 				if m.steamReplyChan != nil {
 					m.steamReplyChan <- true
 					m.steamReplyChan = nil
 				}
-				m.ActivePage = PageInstalling // Возвращаемся к бару установки
+				m.ActivePage = PageInstalling
 				return m, nil
-			case "n", "н", "esc": // Отказ
+			case "n", "н", "esc":
 				if m.steamReplyChan != nil {
 					m.steamReplyChan <- false
 					m.steamReplyChan = nil
 				}
-				m.ActivePage = PageInstalling // Возвращаемся к бару установки
+				m.ActivePage = PageInstalling
 				return m, nil
 			}
-			// Блокируем остальные клавиши на этом экране
 			return m, nil
 		}
 
@@ -184,7 +214,6 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case PromptSteamCloseMsg:
-		// Ловим сообщение из горутины, сохраняем канал и меняем экран
 		m.steamReplyChan = msg.ReplyChan
 		m.ActivePage = PageAskingSteamClose
 		return m, nil
@@ -213,6 +242,8 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// 3. Маршрутизация обновлений по страницам
 	var cmd tea.Cmd
 	switch m.ActivePage {
+	case PageSystemChecks:
+		m.Page0, cmd = m.Page0.Update(msg)
 	case PageInstallerPath:
 		m.Page1, cmd = m.Page1.Update(msg)
 	case PageInstallPath:
@@ -259,6 +290,8 @@ func (m Index) View() string {
 		rawBody = errorStyle.Render(fmt.Sprintf(" ОШИБКА: %v", m.Err))
 	} else {
 		switch m.ActivePage {
+		case PageSystemChecks:
+			rawBody = m.Page0.View()
 		case PageInstallerPath:
 			rawBody = m.Page1.View()
 		case PageInstallPath:
@@ -270,7 +303,6 @@ func (m Index) View() string {
 		case PageInstalling:
 			rawBody = m.Status.View()
 		case PageAskingSteamClose:
-			// Отрисовка нативного предупреждения TUI
 			warning := "\n  ВНИМАНИЕ!\n\n" +
 				"  Для интеграции игры в библиотеку необходимо закрыть клиент Steam.\n" +
 				"  Убедитесь, что у вас не скачиваются другие игры.\n\n" +

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,48 +23,59 @@ import (
 //go:embed src/*
 var bundledAssets embed.FS
 
-func RunSystemChecks() (bool, bool, bool) {
+func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth, screenHeight int) {
 	core.LogInfo("=== Выполнение предполетных проверок ===")
 
-	if os.Geteuid() == 0 {
+	// 1. Запущен ли от root
+	isSudo = os.Geteuid() == 0
+	if isSudo {
 		core.LogError("КРИТИЧЕСКАЯ ОШИБКА: Запуск от root запрещен!")
-		return false, false, false
+	} else {
+		core.LogInfo("Запуск от обычного пользователя")
 	}
 
-	hasPortProton := false
+	// 2. Проверка Wine/Proton (wine, wine64, proton)
+	hasWine = checkBinary("proton")
 
-	if _, err := exec.LookPath("portproton"); err == nil {
-		hasPortProton = true
-		core.LogInfo("PortProton найден в системном PATH")
-	} else {
-		home, _ := os.UserHomeDir()
-		localPP := filepath.Join(home, ".local", "bin", "portproton")
-		if _, err := os.Stat(localPP); err == nil {
-			hasPortProton = true
-			core.LogInfo("PortProton найден по локальному пути: %s", localPP)
+	// Проверка PortProton (PATH, локальный путь, Flatpak)
+	if !hasWine {
+		if _, err := exec.LookPath("portproton"); err == nil {
+			hasWine = true
+			core.LogInfo("PortProton найден в системном PATH")
 		} else {
-			if _, err := exec.LookPath("flatpak"); err == nil {
-				cmd := exec.Command("flatpak", "info", "ru.linux_gaming.PortProton")
-				if err := cmd.Run(); err == nil {
-					hasPortProton = true
-					core.LogInfo("PortProton найден в реестре Flatpak")
+			home, _ := os.UserHomeDir()
+			localPP := filepath.Join(home, ".local", "bin", "portproton")
+			if _, err := os.Stat(localPP); err == nil {
+				hasWine = true
+				core.LogInfo("PortProton найден по локальному пути: %s", localPP)
+			} else {
+				if _, err := exec.LookPath("flatpak"); err == nil {
+					cmd := exec.Command("flatpak", "info", "ru.linux_gaming.PortProton")
+					if err := cmd.Run(); err == nil {
+						hasWine = true
+						core.LogInfo("PortProton найден в реестре Flatpak")
+					}
 				}
 			}
 		}
 	}
 
-	if !hasPortProton {
-		core.LogError("КРИТИЧЕСКАЯ ОШИБКА: PortProton не найден ни в PATH, ни в локальной папке, ни во Flatpak.")
-		return false, false, false
+	if hasWine {
+		core.LogInfo("PortProton обнаружен в системе")
+	} else {
+		core.LogError("КРИТИЧЕСКАЯ ОШИБКА: PortProton не найден в системе")
 	}
 
-	_, errGM := exec.LookPath("gamemoderun")
-	hasGameMode := (errGM == nil)
+	// 3. Проверка gamemoderun
+	hasGameMode = checkBinary("gamemoderun") || checkBinary("gamemoded")
 	if hasGameMode {
 		core.LogInfo("gamemoderun найден в системе")
+	} else {
+		core.LogWarn("gamemoderun не найден, производительность может быть ниже ожидаемой")
 	}
 
-	hasNVAPI := false
+	// 4. Проверка NVAPI
+	hasNVAPI = false
 	if _, err := os.Stat("/proc/driver/nvidia"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -81,8 +93,31 @@ func RunSystemChecks() (bool, bool, bool) {
 			}
 		}
 	}
+	if !hasNVAPI {
+		core.LogInfo("NVAPI не требуется или видеокарта не NVIDIA")
+	}
 
-	return true, hasGameMode, hasNVAPI
+	screenWidth, screenHeight = 1920, 1080 // Значения по умолчанию
+	out, err := exec.Command("sh", "-c", "xrandr | grep '\\*' | awk '{print $1}'").Output()
+	if err == nil {
+		parts := strings.Split(strings.TrimSpace(string(out)), "x")
+		if len(parts) == 2 {
+			if w, err := strconv.Atoi(parts[0]); err == nil {
+				screenWidth = w
+			}
+			if h, err := strconv.Atoi(parts[1]); err == nil {
+				screenHeight = h
+			}
+		}
+	}
+	core.LogInfo("Базовое разрешение экрана определено как: %dx%d", screenWidth, screenHeight)
+
+	return
+}
+
+func checkBinary(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }
 
 // ensureTerminal проверяет наличие TTY и перезапускает программу в графическом терминале
@@ -100,15 +135,19 @@ func ensureTerminal() {
 		exec string
 		arg  string
 	}{
-		{"konsole", "-e"},        // KDE (Steam Deck в режиме рабочего стола)
-		{"gnome-terminal", "--"}, // GNOME (Ubuntu, Fedora)
-		{"xfce4-terminal", "-x"}, // XFCE (Linux Mint, Manjaro XFCE)
-		{"alacritty", "-e"},      // Популярный у продвинутых юзеров
-		{"kitty", "--"},          // Ещё один популярный GPU-терминал
-		{"terminator", "-x"},     // Часто используется разработчиками
-		{"mate-terminal", "-x"},  // MATE
-		{"lxterminal", "-e"},     // LXDE
-		{"xterm", "-e"},          // Универсальный фолбэк (есть почти везде)
+		{"konsole", "-e"},
+		{"gnome-terminal", "--"},
+		{"kgx", "-e"},
+		{"ptyxis", "--"},
+		{"xfce4-terminal", "-x"},
+		{"alacritty", "-e"},
+		{"wezterm", "-e"},
+		{"kitty", "--"},
+		{"foot", "-e"},
+		{"terminator", "-x"},
+		{"mate-terminal", "-x"},
+		{"lxterminal", "-e"},
+		{"xterm", "-e"},
 	}
 
 	launched := false
@@ -168,24 +207,6 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func getFSRPatches(enabled bool, resolution string) []core.ConfigPatch {
-	if !enabled {
-		return nil
-	}
-	return []core.ConfigPatch{
-		{
-			TargetFile: "MO2/mods/SSE Display Tweaks/SKSE/Plugins/SSEDisplayTweaks.ini",
-			Replace: map[string]string{
-				"Fullscreen=false": "Fullscreen=true",
-				"Borderless=true":  "Borderless=false",
-			},
-			InsertAfter: map[string]string{
-				"[Render]": fmt.Sprintf("Resolution=%s", resolution),
-			},
-		},
-	}
-}
-
 func main() {
 	ensureTerminal()
 
@@ -204,12 +225,8 @@ func main() {
 
 	core.LogInfo("Запуск Rfad-TUI-Linux-Installer")
 
-	passed, useGameMode, useNVAPI := RunSystemChecks()
-	if !passed {
-		core.LogError("Системные проверки не пройдены, выход")
-		os.Exit(1)
-	}
-	core.LogInfo("Системные проверки пройдены: GameMode=%v, NVAPI=%v", useGameMode, useNVAPI)
+	isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight := RunSystemChecks()
+	core.LogInfo("Системные проверки пройдены: Sudo=%v, Wine=%v, GameMode=%v, NVAPI=%v, Screan=%v x %v", isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight)
 
 	startChan := make(chan *tui.InstallConfig)
 
@@ -221,7 +238,7 @@ func main() {
 		core.LogWarn("Не удалось загрузить install.ascii: %v", err)
 	}
 
-	page := pages.NewIndex(startChan, asciiArt)
+	page := pages.NewIndex(startChan, asciiArt, isSudo, hasWine, hasGameMode, hasNVAPI)
 	p := tea.NewProgram(page, tea.WithInput(os.Stdin))
 
 	go func() {
@@ -231,11 +248,36 @@ func main() {
 
 		gamePath := cfg.InstallPath
 
-		time.Sleep(500 * time.Millisecond)
+		os.MkdirAll(cfg.InstallPath, 0755) // Убеждаемся, что папка существует
+		infPath := filepath.Join(cfg.InstallPath, "rfad_install.inf")
+
+		cacheDir := filepath.Join(".", "local_cache")
+		os.MkdirAll(cacheDir, 0755)
+
+		// === ЭТАП 0.5: ПОДГОТОВКА СВОЕГО ДВИЖКА (PORTABLE WINE) ===
+		core.LogInfo("=== ЭТАП 0.5: Подготовка Portable Wine ===")
+
+		portableWineDir := filepath.Join(cacheDir, "wine")
+		wineExePath := filepath.Join(portableWineDir, "bin", "wine")
+
+		// Если бинарника еще нет, качаем и распаковываем
+		if !fileExists(wineExePath) {
+			err := core.GetPortableWine(cacheDir, portableWineDir, func(percent float64, detail string) {
+				p.Send(pages.ProgressMsg{
+					Percent: percent,
+					Message: detail,
+				})
+			})
+			if err != nil {
+				core.LogError("Ошибка подготовки Wine: %v", err)
+				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка загрузки движка: %v", err)})
+				return
+			}
+		}
 
 		// === ЭТАП 1: УСТАНОВКА ЧИСТОЙ ИГРЫ ЧЕРЕЗ WINE ===
 		// innoexctract тут заюзать невозможно
-		core.LogInfo("=== ЭТАП 0: Установка базовой игры через Wine ===")
+		core.LogInfo("=== ЭТАП 1: Установка базовой игры через Wine ===")
 
 		components := "rfad_se,enb"
 		if cfg.GraphicsMod == "ReShade" {
@@ -253,12 +295,30 @@ SetupType=custom
 Components=%s
 Tasks=`, winInstallPath, components)
 
-		infPath := filepath.Join(os.TempDir(), "rfad_install.inf")
+		// ИСПРАВЛЕНИЕ: Создаем inf-файл в папке игры, чтобы обойти изоляцию /tmp
+		os.MkdirAll(cfg.InstallPath, 0755)
+		infPath = filepath.Join(cfg.InstallPath, "rfad_install.inf")
 		os.WriteFile(infPath, []byte(infContent), 0644)
 
 		winInfPath := "Z:" + strings.ReplaceAll(infPath, "/", "\\")
 
+		var isSuccess bool
+
+		defer func() {
+			if !isSuccess && !*localTest {
+				core.LogWarn("Установка прервана или завершилась ошибкой. Очистка сломанной директории: %s", gamePath)
+				p.Send(pages.ProgressMsg{
+					Percent: -1,
+					Message: "Очистка неудачной установки...",
+				})
+				os.RemoveAll(gamePath)
+			}
+		}()
+
+		time.Sleep(500 * time.Millisecond)
+
 		err := core.ExtractInstaller(
+			wineExePath,
 			cfg.InstallerPath,
 			cfg.InstallPath,
 			winInfPath,
@@ -271,6 +331,7 @@ Tasks=`, winInstallPath, components)
 			},
 		)
 
+		// Удаляем временный inf-файл после установки
 		os.Remove(infPath)
 
 		if err != nil {
@@ -287,15 +348,10 @@ Tasks=`, winInstallPath, components)
 			return
 		}
 
-		var updateArchivePath string
-		if *localTest {
-			os.MkdirAll("local_cache", 0755)
-			updateArchivePath = filepath.Join("local_cache", "update.zip")
-		} else {
-			updateArchivePath = filepath.Join(cfg.InstallPath, "update.zip")
-		}
-		if *localTest && fileExists(updateArchivePath) {
-			core.LogInfo("Локальный тест: найден кэшированный архив %s, загрузка пропущена", updateArchivePath)
+		updateArchivePath := filepath.Join(cacheDir, "update.zip")
+
+		if fileExists(updateArchivePath) {
+			core.LogInfo("Найден кэшированный архив %s, загрузка пропущена", updateArchivePath)
 			p.Send(pages.ProgressMsg{Percent: 1.0, Message: "Используется локальный архив обновления..."})
 			time.Sleep(500 * time.Millisecond)
 		} else {
@@ -337,20 +393,7 @@ Tasks=`, winInstallPath, components)
 			return
 		}
 
-		// Удаляем только если это не локальный тест
-		if !*localTest {
-			os.Remove(updateArchivePath)
-		}
-
 		err = core.EnablePlugin(gamePath, "Rfad_Runes.esp")
-		if err != nil {
-			core.LogWarn("Не удалось автоматически включить Rfad_Runes.esp: %v", err)
-		} else {
-			core.LogInfo("Rfad_Runes.esp успешно добавлен в plugins.txt")
-		}
-
-		core.LogInfo("Распаковка обновления завершена")
-		time.Sleep(500 * time.Millisecond)
 
 		// === ЭТАП 3: РАСПАКОВКА ПРЕФИКСА WINE ===
 		core.LogInfo("=== ЭТАП 3: Распаковка префикса Wine ===")
@@ -361,16 +404,10 @@ Tasks=`, winInstallPath, components)
 			os.RemoveAll(oldPrefixPath)
 		}
 
-		var prefixArchivePath string
-		if *localTest {
-			os.MkdirAll("local_cache", 0755)
-			prefixArchivePath = filepath.Join("local_cache", "prefix.tar.gz")
-		} else {
-			prefixArchivePath = filepath.Join(cfg.InstallPath, "prefix.tar.gz")
-		}
+		prefixArchivePath := filepath.Join(cacheDir, "prefix.tar.gz")
 
-		if *localTest && fileExists(prefixArchivePath) {
-			core.LogInfo("Локальный тест: найден кэшированный префикс %s, загрузка пропущена", prefixArchivePath)
+		if fileExists(prefixArchivePath) {
+			core.LogInfo("Найден кэшированный префикс %s, загрузка пропущена", prefixArchivePath)
 			p.Send(pages.ProgressMsg{Percent: 1.0, Message: "Используется локальный архив префикса..."})
 			time.Sleep(500 * time.Millisecond)
 		} else {
@@ -397,14 +434,6 @@ Tasks=`, winInstallPath, components)
 			core.LogError("Ошибка распаковки префикса: %v", err)
 			p.Send(pages.ErrorMsg{Err: err})
 			return
-		}
-
-		// Не удаляем префикс, если идет тест
-		if !*localTest {
-			os.Remove(prefixArchivePath)
-			core.LogInfo("Распаковка префикса завершена, архив удалён")
-		} else {
-			core.LogInfo("Распаковка префикса завершена, локальный архив сохранён (режим --local-test)")
 		}
 
 		// === ЭТАП 4: ПРИМЕНЕНИЕ ФИКСОВ КОНФИГУРАЦИИ ===
@@ -447,12 +476,12 @@ Tasks=`, winInstallPath, components)
 				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания дубликата MO2: %v", err)})
 				return
 			}
-			core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode)
+			core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode)
 		}
 
-		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, useNVAPI, useGameMode)
+		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode)
 
-		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, useNVAPI, useGameMode, cfg.UseSteamFix)
+		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode, cfg.UseSteamFix)
 
 		// === ЭТАП 6: Steam Fix и интеграция со Steam ===
 
@@ -471,14 +500,16 @@ Tasks=`, winInstallPath, components)
 
 			if !shouldContinue {
 				core.LogWarn("Пользователь отказался закрывать Steam. Интеграция пропущена.")
-				// Пользователь отказался — пропускаем этот этап, но не прерываем всю установку
 			} else {
 				core.LogInfo("Пользователь дал согласие. Закрываем Steam...")
-				//Архив взят из гайда:
-				//https://steamcommunity.com/sharedfiles/filedetails/?id=3317990776
+
+				// 1. РЕАЛЬНО ЗАКРЫВАЕМ STEAM ПЕРЕД НАЧАЛОМ РАБОТЫ С ФАЙЛАМИ
+				core.ShutdownSteam()
+
+				// Архив взят из гайда: https://steamcommunity.com/sharedfiles/filedetails/?id=3317990776
 				err = core.ApplySteamFix(cfg.InstallPath, bundledAssets)
 				if err != nil {
-					core.LogError("ВНИМАНИЕ: Не удалось преминить Steam Fix: %v", err)
+					core.LogError("ВНИМАНИЕ: Не удалось применить Steam Fix: %v", err)
 					return
 				}
 
@@ -487,8 +518,6 @@ Tasks=`, winInstallPath, components)
 					core.LogError("ВНИМАНИЕ: Не удалось установить GE-Proton: %v", err)
 				}
 
-				// Скрипт для использования префикса распаковоного в PortProton экономия 4 гб на диске
-				// дополнительная горантия целосности prefix и дозогрузка недостоющих пакетов через PortProton
 				prelaunchScript, err := core.CreateSteamPrelaunchScript(cfg.InstallPath)
 				if err != nil {
 					core.LogError("Ошибка создания prelaunch-скрипта: %v", err)
@@ -497,32 +526,39 @@ Tasks=`, winInstallPath, components)
 				mo2ExePath := filepath.Join(cfg.InstallPath, "MO2", "ModOrganizer.exe")
 				startDir := filepath.Join(cfg.InstallPath, "MO2")
 
-				// ДИНАМИЧЕСКАЯ СБОРКА ФЛАГОВ ЗАПУСКА
-				launchOpts := "STEAM_APP_ID=489830 WINEDLLOVERRIDES=\"xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n\" "
+				// ДИНАМИЧЕСКАЯ СБОРКА ФЛАГОВ ЗАПУСКА (безопасный метод через массив)
+				var launchParts []string
+				launchParts = append(launchParts, "STEAM_APP_ID=489830")
+				launchParts = append(launchParts, `WINEDLLOVERRIDES="xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n"`)
 
 				if cfg.UseFSR {
-					launchOpts += "WINE_FULLSCREEN_FSR=1 WINE_FULLSCREEN_FSR_STRENGTH=2 "
-				}
-				// Возможно в будующем добавлю перенастройку модов на подтержку CUDA
-				if useNVAPI {
-					launchOpts += "PROTON_ENABLE_NVAPI=1 "
+					launchParts = append(launchParts, "WINE_FULLSCREEN_FSR=1", "WINE_FULLSCREEN_FSR_STRENGTH=2")
 				}
 
-				if useGameMode {
-					launchOpts += "gamemoderun "
+				if hasNVAPI {
+					launchParts = append(launchParts, "PROTON_ENABLE_NVAPI=1")
 				}
 
-				launchOpts += fmt.Sprintf("bash \"%s\" %%command%% \"moshortcut://:SKSE\"", prelaunchScript)
+				if hasGameMode {
+					launchParts = append(launchParts, "gamemoderun")
+				}
 
+				mainCmd := fmt.Sprintf(`bash "%s" %%command%% "moshortcut://:SKSE"`, prelaunchScript)
+				launchParts = append(launchParts, mainCmd)
+
+				launchOpts := strings.Join(launchParts, " ")
+
+				// 2. ВНОСИМ ИЗМЕНЕНИЯ В ВЫКЛЮЧЕННЫЙ STEAM
 				err = core.AddToSteamShortcuts("RFAD Game (License)", mo2ExePath, startDir, launchOpts)
 				if err != nil {
 					core.LogError("Ошибка при добавлении лицензионного ярлыка в Steam: %v", err)
 				} else {
 					core.LogInfo("Лицензионный ярлык успешно добавлен.")
 				}
+
+				// 3. ВОЗВРАЩАЕМ STEAM К ЖИЗНИ
+				core.RestartSteam()
 			}
-		} else {
-			core.LogInfo("=== ЭТАП 6: Steam Fix пропущен ===")
 		}
 
 		// === Этап 7: Создание шорткатов
@@ -539,7 +575,14 @@ Tasks=`, winInstallPath, components)
 			core.LogInfo("Создание ярлыков пропущено (отключено пользователем)")
 		}
 
+		isSuccess = true
+
 		core.LogInfo("=== УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО ===")
+
+		if !*localTest {
+			core.LogInfo("Очистка временных файлов загрузки: %s", cacheDir)
+			os.RemoveAll(cacheDir)
+		}
 
 		p.Send(pages.DoneMsg{})
 	}()

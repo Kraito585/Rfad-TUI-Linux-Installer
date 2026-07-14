@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 func GenerateSteamAppID(appName, exePath string) uint32 {
@@ -40,14 +41,58 @@ func WriteVDFInt32(buf *bytes.Buffer, fieldType byte, key string, value uint32) 
 	binary.Write(buf, binary.LittleEndian, value)
 }
 
-// AddToSteamShortcuts находит shortcuts.vdf для ВСЕХ пользователей и дописывает туда игру
-func AddToSteamShortcuts(appName, exePath, startDir, launchOptions string) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+// GetSteamCompatDataDir ищет папку compatdata для нужного AppID во всех возможных местах
+func GetSteamCompatDataDir(appID string) string {
+	home, _ := os.UserHomeDir()
+
+	possiblePaths := []string{
+		filepath.Join(home, ".steam", "steam", "steamapps", "compatdata", appID),
+		filepath.Join(home, ".local", "share", "Steam", "steamapps", "compatdata", appID),
+
+		filepath.Join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "steamapps", "compatdata", appID),
+		filepath.Join(home, ".var", "app", "com.valvesoftware.Steam", ".steam", "steam", "steamapps", "compatdata", appID),
 	}
 
-	userdataDir := filepath.Join(home, ".steam/steam/userdata")
+	for _, p := range possiblePaths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	flatpakSteamRoot := filepath.Join(home, ".var", "app", "com.valvesoftware.Steam")
+	if _, err := os.Stat(flatpakSteamRoot); err == nil {
+		return possiblePaths[2]
+	}
+
+	return possiblePaths[0]
+}
+
+// AddToSteamShortcuts находит shortcuts.vdf для ВСЕХ пользователей и дописывает туда игру
+func AddToSteamShortcuts(appName, exePath, startDir, launchOptions string) error {
+	home, _ := os.UserHomeDir()
+
+	possibleUserdataPaths := []string{
+		filepath.Join(home, ".steam", "steam", "userdata"),
+		filepath.Join(home, ".local", "share", "Steam", "userdata"),
+		filepath.Join(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "userdata"),
+		filepath.Join(home, ".var", "app", "com.valvesoftware.Steam", ".steam", "steam", "userdata"),
+	}
+
+	var userdataDir string
+	found := false
+
+	for _, path := range possibleUserdataPaths {
+		if _, err := os.Stat(path); err == nil {
+			userdataDir = path
+			found = true
+			LogInfo("AddToSteamShortcuts: найдена папка userdata: %s", path)
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("папка userdata Steam не найдена ни в одном из стандартных путей")
+	}
 	entries, err := os.ReadDir(userdataDir)
 	if err != nil || len(entries) == 0 {
 		return fmt.Errorf("папка userdata Steam не найдена")
@@ -55,14 +100,12 @@ func AddToSteamShortcuts(appName, exePath, startDir, launchOptions string) error
 
 	successCount := 0
 
-	// Проходим по всем папкам в userdata
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
 		name := entry.Name()
-		// Игнорируем системные папки-заглушки
 		if name == "0" || name == "ac" || name == "anonymous" {
 			continue
 		}
@@ -74,15 +117,12 @@ func AddToSteamShortcuts(appName, exePath, startDir, launchOptions string) error
 		var shortcutCount int
 
 		if _, err := os.Stat(vdfPath); err == nil {
-			// Читаем существующий файл
 			fileData, _ = os.ReadFile(vdfPath)
-			// Отрезаем 2 последних байта (0x08 0x08), закрывающих файл, чтобы вписать новые данные
 			if len(fileData) > 2 {
 				fileData = fileData[:len(fileData)-2]
 			}
 			shortcutCount = bytes.Count(fileData, []byte("\x00AppName\x00"))
 		} else {
-			// Создаем новый файл, если его нет
 			fileData = append(fileData, 0x00)
 			fileData = append(fileData, []byte("shortcuts")...)
 			fileData = append(fileData, 0x00)
@@ -114,21 +154,16 @@ func AddToSteamShortcuts(appName, exePath, startDir, launchOptions string) error
 		WriteVDFInt32(buf, 0x02, "LastPlayTime", 0)
 		WriteVDFString(buf, 0x01, "FlatpakAppID", "")
 
-		// ПРАВИЛЬНАЯ ЗАПИСЬ ТЕГОВ И ЗАКРЫТИЕ ФАЙЛА
-		// 0x00 объявляет начало словаря "tags"
 		buf.WriteByte(0x00)
 		buf.WriteString("tags")
 		buf.WriteByte(0x00)
 
-		// Закрываем 4 словаря: tags -> текущий ярлык -> shortcuts -> весь файл
 		buf.Write([]byte{0x08, 0x08, 0x08, 0x08})
 
 		finalData := append(fileData, buf.Bytes()...)
 
-		// Создаем директорию config, если её вдруг нет
 		os.MkdirAll(filepath.Dir(vdfPath), 0755)
 
-		// Записываем файл
 		if err := os.WriteFile(vdfPath, finalData, 0644); err == nil {
 			LogInfo("AddToSteamShortcuts: ярлык успешно добавлен для пользователя %s", name)
 			successCount++
@@ -169,7 +204,6 @@ func ApplySteamFix(gamePath string, assets embed.FS) error {
 		filePath := filepath.Join(gamePath, name)
 		f, err := os.Open(filePath)
 		if err != nil {
-			// steam_api64.cdx может и не быть в некоторых версиях, это нормально
 			if name == "steam_api64.cdx" {
 				continue
 			}
@@ -192,7 +226,6 @@ func ApplySteamFix(gamePath string, assets embed.FS) error {
 			return fmt.Errorf("ошибка при записи бэкапа %s: %v", name, err)
 		}
 
-		// Удаляем старый файл после бэкапа, чтобы очистить место для нашего фикса
 		if err := os.Remove(filePath); err != nil {
 			LogWarn("Steam Fix: не удалось удалить оригинальный файл %s: %v", name, err)
 		} else {
@@ -205,7 +238,6 @@ func ApplySteamFix(gamePath string, assets embed.FS) error {
 
 	LogUnpacking("Извлечение steam_fix.tar.gz из бинарника...")
 
-	// Читаем архив из памяти
 	fixData, err := assets.ReadFile("src/steam_fix.tar.gz")
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать steam_fix.tar.gz из ресурсов: %v", err)
@@ -248,7 +280,6 @@ export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/steam"
 /usr/bin/portproton "%s"
 `, mo2Exe)
 
-	// Флаг 0755 делает файл исполняемым (chmod +x)
 	err := os.WriteFile(scriptPath, []byte(scriptContent), 0755)
 	if err == nil {
 		LogInfo("CreateLaunchScript: скрипт запуска успешно создан по пути %s", scriptPath)
@@ -259,7 +290,6 @@ export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/steam"
 func CreateSteamPrelaunchScript(installPath string) (string, error) {
 	scriptPath := filepath.Join(installPath, "steam_prelaunch.sh")
 
-	// Здесь мы используем префикс RFAD_SE (как было в твоих логах PortProton)
 	scriptContent := fmt.Sprintf(`#!/usr/bin/env bash
 
 INSTALL_DIR="%s"
@@ -360,4 +390,19 @@ def createPlugin() -> mobase.IPlugin:
 		LogError("Ошибка создания Python-плагина: %v", err)
 	}
 	return err
+}
+
+func ShutdownSteam() {
+	LogInfo("AddToSteamShortcuts: отправка команды завершения работы Steam...")
+
+	exec.Command("steam", "-shutdown").Run()
+
+	for i := 0; i < 5; i++ {
+		if _, err := exec.Command("pidof", "steam").Output(); err != nil {
+			LogInfo("AddToSteamShortcuts: Steam успешно закрыт.")
+			return
+		}
+		time.Sleep(1 * time.Second)
+	}
+	LogWarn("AddToSteamShortcuts: Steam не закрылся вовремя, работаем на свой страх и риск.")
 }
