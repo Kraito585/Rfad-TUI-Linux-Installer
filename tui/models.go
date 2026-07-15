@@ -18,10 +18,12 @@ type InstallConfig struct {
 
 // SystemChecks хранит результаты предполётных проверок
 type SystemChecks struct {
-	IsSudo      bool
-	HasWine     bool
-	HasGameMode bool
-	HasNVAPI    bool
+	IsSudo       bool
+	HasWine      bool
+	HasGameMode  bool
+	HasNVAPI     bool
+	ScreenWidth  int
+	ScreenHeight int
 }
 
 // NewInstallConfig возвращает конфиг с дефолтными значениями

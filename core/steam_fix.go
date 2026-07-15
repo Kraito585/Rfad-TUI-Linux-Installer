@@ -331,7 +331,24 @@ fi
 # Символ $@ выполнит то, что передал Steam (proton run ModOrganizer.exe ...)
 "$@"
 
-# 4. ОТКАТ ПРЕФИКСА ПОСЛЕ ЗАКРЫТИЯ ИГРЫ
+# Указываем версию, которую скачала твоя функция InstallGEProton в Go
+GE_VERSION="GE-Proton11-1"
+CUSTOM_PROTON="$HOME/.steam/root/compatibilitytools.d/$GE_VERSION/proton"
+
+# 4. ЗАПУСК ИГРЫ ЧЕРЕЗ СВОЙ PROTON
+if [ -f "$CUSTOM_PROTON" ]; then
+    echo "Запуск через кастомный Proton: $GE_VERSION"
+    # Команда shift удаляет первый аргумент из $@ (путь к системному Proton, который передал Steam)
+    shift
+    
+    # Запускаем наш GE-Proton, передавая ему оставшиеся аргументы (run ModOrganizer.exe ...)
+    "$CUSTOM_PROTON" "$@"
+else
+    echo "GE-Proton не найден, откат на системный Proton"
+    "$@"
+fi
+
+# 5. ОТКАТ ПРЕФИКСА ПОСЛЕ ЗАКРЫТИЯ ИГРЫ
 rm -f "$STEAM_PFX"
 if [ -d "${STEAM_PFX}_backup" ]; then
     mv "${STEAM_PFX}_backup" "$STEAM_PFX"

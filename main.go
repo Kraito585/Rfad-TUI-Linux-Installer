@@ -579,10 +579,8 @@ Tasks=`, winInstallPath, components)
 
 		core.LogInfo("=== УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО ===")
 
-		if !*localTest {
-			core.LogInfo("Очистка временных файлов загрузки: %s", cacheDir)
-			os.RemoveAll(cacheDir)
-		}
+		core.LogInfo("Очистка временных файлов загрузки: %s", cacheDir)
+		os.RemoveAll(cacheDir)
 
 		p.Send(pages.DoneMsg{})
 	}()

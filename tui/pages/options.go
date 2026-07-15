@@ -258,5 +258,5 @@ func (m OptionsPage) View() string {
 
 	s += lipgloss.NewStyle().MarginTop(1).MarginLeft(2).Render(lipgloss.JoinHorizontal(lipgloss.Center, btnBack, "        ", btnNext))
 
-	return s
+	return lipgloss.NewStyle().Width(64).Render(s)
 }
