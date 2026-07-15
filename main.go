@@ -238,7 +238,7 @@ func main() {
 		core.LogWarn("Не удалось загрузить install.ascii: %v", err)
 	}
 
-	page := pages.NewIndex(startChan, asciiArt, isSudo, hasWine, hasGameMode, hasNVAPI)
+	page := pages.NewIndex(startChan, asciiArt, isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight)
 	p := tea.NewProgram(page, tea.WithInput(os.Stdin))
 
 	go func() {
@@ -248,11 +248,9 @@ func main() {
 
 		gamePath := cfg.InstallPath
 
-		os.MkdirAll(cfg.InstallPath, 0755) // Убеждаемся, что папка существует
-		infPath := filepath.Join(cfg.InstallPath, "rfad_install.inf")
-
 		cacheDir := filepath.Join(".", "local_cache")
 		os.MkdirAll(cacheDir, 0755)
+		core.LogInfo("Временная папка загрузок установлена в: %s", cacheDir)
 
 		// === ЭТАП 0.5: ПОДГОТОВКА СВОЕГО ДВИЖКА (PORTABLE WINE) ===
 		core.LogInfo("=== ЭТАП 0.5: Подготовка Portable Wine ===")
@@ -260,7 +258,6 @@ func main() {
 		portableWineDir := filepath.Join(cacheDir, "wine")
 		wineExePath := filepath.Join(portableWineDir, "bin", "wine")
 
-		// Если бинарника еще нет, качаем и распаковываем
 		if !fileExists(wineExePath) {
 			err := core.GetPortableWine(cacheDir, portableWineDir, func(percent float64, detail string) {
 				p.Send(pages.ProgressMsg{
@@ -276,12 +273,13 @@ func main() {
 		}
 
 		// === ЭТАП 1: УСТАНОВКА ЧИСТОЙ ИГРЫ ЧЕРЕЗ WINE ===
-		// innoexctract тут заюзать невозможно
 		core.LogInfo("=== ЭТАП 1: Установка базовой игры через Wine ===")
 
-		components := "rfad_se,enb"
-		if cfg.GraphicsMod == "ReShade" {
-			components = "rfad_se,reshade"
+		components := "rfad_se"
+		if cfg.GraphicsMod == "ENB" {
+			components += ",enb"
+		} else if cfg.GraphicsMod == "ReShade" {
+			components += ",reshade"
 		}
 
 		winInstallPath := "Z:" + strings.ReplaceAll(cfg.InstallPath, "/", "\\")
@@ -295,9 +293,8 @@ SetupType=custom
 Components=%s
 Tasks=`, winInstallPath, components)
 
-		// ИСПРАВЛЕНИЕ: Создаем inf-файл в папке игры, чтобы обойти изоляцию /tmp
 		os.MkdirAll(cfg.InstallPath, 0755)
-		infPath = filepath.Join(cfg.InstallPath, "rfad_install.inf")
+		infPath := filepath.Join(cfg.InstallPath, "rfad_install.inf")
 		os.WriteFile(infPath, []byte(infContent), 0644)
 
 		winInfPath := "Z:" + strings.ReplaceAll(infPath, "/", "\\")
@@ -317,7 +314,7 @@ Tasks=`, winInstallPath, components)
 
 		time.Sleep(500 * time.Millisecond)
 
-		err := core.ExtractInstaller(
+		err = core.ExtractInstaller(
 			wineExePath,
 			cfg.InstallerPath,
 			cfg.InstallPath,
@@ -340,7 +337,7 @@ Tasks=`, winInstallPath, components)
 		}
 
 		// === ЭТАП 2: ЗАГРУЗКА И УСТАНОВКА ОБНОВЛЕНИЯ ===
-		core.LogInfo("=== ЭТАП 1: Загрузка обновления ===")
+		core.LogInfo("=== ЭТАП 2: Загрузка обновления ===")
 
 		creds, err := bundledAssets.ReadFile("src/credentials.json")
 		if err != nil {
@@ -395,7 +392,7 @@ Tasks=`, winInstallPath, components)
 
 		err = core.EnablePlugin(gamePath, "Rfad_Runes.esp")
 
-		// === ЭТАП 3: РАСПАКОВКА ПРЕФИКСА WINE ===
+		// === ЭТАП 3: ЗАГРУЗКА И РАСПАКОВКА ПРЕФИКСА WINE ===
 		core.LogInfo("=== ЭТАП 3: Распаковка префикса Wine ===")
 
 		prefixBase, err := core.GetPortProtonPrefixPath()
@@ -455,7 +452,6 @@ Tasks=`, winInstallPath, components)
 
 		// === ЭТАП 5: Генерация PPDB-файлов ===
 		core.LogInfo("=== ЭТАП 5: Генерация PPDB-файлов ===")
-		core.LogInfo("=== ЭТАП 5: Генерация конфигов и плагинов ===")
 		mo2Path := filepath.Join(cfg.InstallPath, "MO2")
 		wineVersion := "GE-PROTON11-1"
 		orig := filepath.Join(mo2Path, "ModOrganizer.exe")
@@ -484,18 +480,15 @@ Tasks=`, winInstallPath, components)
 		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode, cfg.UseSteamFix)
 
 		// === ЭТАП 6: Steam Fix и интеграция со Steam ===
-
 		if cfg.UseSteamFix {
 			core.LogInfo("=== ЭТАП 6: Настройка ярлыка Steam ===")
 
-			// 1. Ставим установку на паузу и спрашиваем пользователя
 			core.LogInfo("Ожидание подтверждения на закрытие Steam...")
 			replyChan := make(chan bool)
 			p.Send(pages.PromptSteamCloseMsg{
 				ReplyChan: replyChan,
 			})
 
-			// Горутина замирает здесь, пока UI не пришлет true или false
 			shouldContinue := <-replyChan
 
 			if !shouldContinue {
@@ -503,10 +496,8 @@ Tasks=`, winInstallPath, components)
 			} else {
 				core.LogInfo("Пользователь дал согласие. Закрываем Steam...")
 
-				// 1. РЕАЛЬНО ЗАКРЫВАЕМ STEAM ПЕРЕД НАЧАЛОМ РАБОТЫ С ФАЙЛАМИ
 				core.ShutdownSteam()
 
-				// Архив взят из гайда: https://steamcommunity.com/sharedfiles/filedetails/?id=3317990776
 				err = core.ApplySteamFix(cfg.InstallPath, bundledAssets)
 				if err != nil {
 					core.LogError("ВНИМАНИЕ: Не удалось применить Steam Fix: %v", err)
@@ -526,7 +517,7 @@ Tasks=`, winInstallPath, components)
 				mo2ExePath := filepath.Join(cfg.InstallPath, "MO2", "ModOrganizer.exe")
 				startDir := filepath.Join(cfg.InstallPath, "MO2")
 
-				// ДИНАМИЧЕСКАЯ СБОРКА ФЛАГОВ ЗАПУСКА (безопасный метод через массив)
+				// ДИНАМИЧЕСКАЯ СБОРКА ФЛАГОВ ЗАПУСКА
 				var launchParts []string
 				launchParts = append(launchParts, "STEAM_APP_ID=489830")
 				launchParts = append(launchParts, `WINEDLLOVERRIDES="xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n"`)
@@ -548,20 +539,17 @@ Tasks=`, winInstallPath, components)
 
 				launchOpts := strings.Join(launchParts, " ")
 
-				// 2. ВНОСИМ ИЗМЕНЕНИЯ В ВЫКЛЮЧЕННЫЙ STEAM
 				err = core.AddToSteamShortcuts("RFAD Game (License)", mo2ExePath, startDir, launchOpts)
 				if err != nil {
 					core.LogError("Ошибка при добавлении лицензионного ярлыка в Steam: %v", err)
 				} else {
 					core.LogInfo("Лицензионный ярлык успешно добавлен.")
 				}
-
-				// 3. ВОЗВРАЩАЕМ STEAM К ЖИЗНИ
 				core.RestartSteam()
 			}
 		}
 
-		// === Этап 7: Создание шорткатов
+		// === Этап 7: Создание шорткатов ===
 		core.LogInfo("=== ЭТАП 7: Создание ярлыков ===")
 		if cfg.CreateShortcuts {
 			err := core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix, bundledAssets)
@@ -579,8 +567,12 @@ Tasks=`, winInstallPath, components)
 
 		core.LogInfo("=== УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО ===")
 
-		core.LogInfo("Очистка временных файлов загрузки: %s", cacheDir)
-		os.RemoveAll(cacheDir)
+		if !*localTest {
+			core.LogInfo("Очистка временных файлов загрузки: %s", cacheDir)
+			os.RemoveAll(cacheDir)
+		} else {
+			core.LogInfo("ВНИМАНИЕ: Флаг --local-test активен. Кэш сохранен в: %s", cacheDir)
+		}
 
 		p.Send(pages.DoneMsg{})
 	}()

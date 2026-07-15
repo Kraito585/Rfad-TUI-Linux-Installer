@@ -125,6 +125,7 @@ func ExtractInstaller(wineExePath, installerPath, installPath string, infPath st
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("WINEPREFIX=%s", tempPrefix),
 		"WINEDLLOVERRIDES=winemenubuilder.exe=d;mscoree=d;mshtml=d",
+		"WINE_NO_GUI=1",
 		"WINE_DISABLE_MONO_PROMPT=1",
 		"WINE_DISABLE_GECKO_PROMPT=1",
 	)

@@ -134,9 +134,11 @@ func (m SummaryPage) View() string {
 
 	valStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("62"))
 
-	s += fmt.Sprintf("  Инсталлятор: %s\n", valStyle.Render(m.Config.InstallerPath))
-	s += fmt.Sprintf("  Куда ставить: %s\n", valStyle.Render(m.Config.InstallPath))
-	s += fmt.Sprintf("  Графика: %s\n", valStyle.Render(m.Config.GraphicsMod))
+	// Собираем пункты настроек в отдельный блок (без пробелов в начале)
+	var settings string
+	settings += fmt.Sprintf("Инсталлятор: %s\n", valStyle.Render(m.Config.InstallerPath))
+	settings += fmt.Sprintf("Куда ставить: %s\n", valStyle.Render(m.Config.InstallPath))
+	settings += fmt.Sprintf("Графика: %s\n", valStyle.Render(m.Config.GraphicsMod))
 
 	fsrStr := "Выкл"
 	if m.Config.UseFSR {
@@ -151,7 +153,10 @@ func (m SummaryPage) View() string {
 			fsrStr = fmt.Sprintf("Вкл (Своё: %s x %s)", m.Config.ResWidth, m.Config.ResHeight)
 		}
 	}
-	s += fmt.Sprintf("  FSR 3.0: %s\n", valStyle.Render(fsrStr))
+	settings += fmt.Sprintf("FSR 3.0: %s", valStyle.Render(fsrStr)) // Убрали \n в конце
+
+	// Сдвигаем весь блок настроек на 8 символов вправо (2 изначальных + 6 новых)
+	s += lipgloss.NewStyle().MarginLeft(10).Render(settings) + "\n"
 
 	s += "\n" + promptStyle.Render("Всё верно?") + "\n"
 	s += promptStyle.Render("[ Enter - Начать установку | Esc - Назад ]")
@@ -187,9 +192,8 @@ func (m SystemChecksPage) View() string {
 	crossStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))  // красный
 	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("208")) // оранжевый
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	boldStyle := lipgloss.NewStyle().Bold(true)
 
-	contentWidth := 64 // Единая ширина для идеального баланса
+	contentWidth := 64 // Жесткая ширина для центрирования
 
 	headerStyle := lipgloss.NewStyle().
 		Width(contentWidth).
@@ -197,111 +201,83 @@ func (m SystemChecksPage) View() string {
 		Foreground(lipgloss.Color("62")).
 		Bold(true)
 
-	titleStyle := lipgloss.NewStyle().
-		Width(contentWidth).
-		Align(lipgloss.Center).
-		Foreground(lipgloss.Color("241"))
-
-	// Стиль для центрирования обычного текста
-	promptStyle := lipgloss.NewStyle().
-		Width(contentWidth).
-		Align(lipgloss.Center)
-
-	// Красивые иконки в квадратных скобках [ ✓ ]
+	// Иконки
 	brL := dimStyle.Render("[")
 	brR := dimStyle.Render("]")
 	okMark := brL + checkStyle.Render("✓") + brR
 	failMark := brL + crossStyle.Render("✗") + brR
-	starMark := brL + checkStyle.Render("★") + brR
-	zapMark := brL + warnStyle.Render("⚡") + brR
+	warnMark := brL + warnStyle.Render("!") + brR
 
 	s := headerStyle.Render("Системные проверки") + "\n\n"
 
-	// 1. Проверка на root (Sudo)
-	s += titleStyle.Render("──── Проверка безопасности ────") + "\n"
+	// 1. Собираем результаты проверок (только суть)
+	var checks []string
+	var errors []string
+	var warnings []string
+
+	// Проверка Sudo
 	if m.Checks.IsSudo {
-		s += promptStyle.Render(failMark+" "+boldStyle.Render("Запуск от root")) + "\n"
-		s += promptStyle.Render(warnStyle.Render("КРИТИЧЕСКАЯ ОШИБКА: ")+"Запуск от root запрещён.") + "\n"
-		s += promptStyle.Render("Завершите установку и перезапустите без sudo.") + "\n\n"
-		s += promptStyle.Render(warnStyle.Render("Установщик НЕ МОЖЕТ быть запущен от имени root.")) + "\n"
-		s += promptStyle.Render(warnStyle.Render("Нажмите Ctrl+C для выхода.")) + "\n\n"
-		return s
+		checks = append(checks, failMark+" root")
+		errors = append(errors, "КРИТИЧЕСКАЯ ОШИБКА: Запуск от root запрещён. Перезапустите без sudo.")
 	} else {
-		s += promptStyle.Render(okMark+" Запуск от обычного пользователя") + "\n\n"
+		checks = append(checks, okMark+" non root")
 	}
 
-	// 2. Проверка Wine/Proton
-	s += titleStyle.Render("──── Проверка Proton ────") + "\n"
+	// Проверка Proton
 	if m.Checks.HasWine {
-		s += promptStyle.Render(okMark+" Proton обнаружен") + "\n\n"
+		checks = append(checks, okMark+" PortProton")
 	} else {
-		s += promptStyle.Render(failMark+" "+boldStyle.Render("Proton не найден")) + "\n"
-		s += promptStyle.Render(warnStyle.Render("Proton отсутствует в системе.")) + "\n"
-		s += promptStyle.Render("Установите PortProton и повторите попытку.") + "\n\n"
-		s += promptStyle.Render(warnStyle.Render("Для продолжения необходим PortProton.")) + "\n"
-		s += promptStyle.Render(warnStyle.Render("Нажмите Ctrl+C для выхода.")) + "\n\n"
-		return s
+		checks = append(checks, failMark+" PortProton")
+		errors = append(errors, "КРИТИЧЕСКАЯ ОШИБКА: Для установки необходим PortProton.")
 	}
 
-	// 3. Проверка gamemoderun
-	s += titleStyle.Render("──── Проверка GameMode ────") + "\n"
+	// Проверка GameMode
 	if m.Checks.HasGameMode {
-		s += promptStyle.Render(okMark+" gamemoderun обнаружен") + "\n\n"
+		checks = append(checks, okMark+" gamemoderun")
 	} else {
-		s += promptStyle.Render(failMark+" "+boldStyle.Render("gamemoderun не найден")) + "\n"
-		s += promptStyle.Render(warnStyle.Render("Производительность может быть ниже ожидаемой.")) + "\n"
-		s += promptStyle.Render("Рекомендуется установить пакет gamemode.") + "\n\n"
+		checks = append(checks, warnMark+" gamemoderun")
+		warnings = append(warnings, "Предупреждение: Без gamemode производительность может быть ниже.")
 	}
 
-	// 4. Проверка NVAPI
-	s += titleStyle.Render("──── Проверка NVAPI ────") + "\n"
+	// Проверка NVAPI
 	if m.Checks.HasNVAPI {
-		s += promptStyle.Render(okMark+" NVAPI поддерживается вашей видеокартой") + "\n\n"
+		checks = append(checks, okMark+" NVAPI")
 	} else {
-		s += promptStyle.Render(starMark+" NVAPI не требуется (видеокарта без поддержки или не NVIDIA)") + "\n"
-		s += promptStyle.Render(dimStyle.Render("Проблем не обнаружено.")) + "\n\n"
+		// Оставляем зеленую галочку, так как отсутствие NVAPI не является проблемой
+		checks = append(checks, okMark+" NVAPI")
 	}
+
+	// 2. Рендерим проверки в ОДНУ СТРОКУ
+	// Склеиваем элементы массива четырьмя пробелами
+	checkRow := strings.Join(checks, "    ")
+
+	// Выводим полученную строку строго по центру
+	s += lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, checkRow) + "\n\n"
 
 	// Разделитель
-	sep := strings.Repeat("─", contentWidth)
-	s += dimStyle.Render(sep) + "\n\n"
+	sep := dimStyle.Render(strings.Repeat("─", contentWidth))
+	s += sep + "\n\n"
 
-	// 1. Заголовок "Сводка" центрируем относительно всего окна
-	s += lipgloss.NewStyle().
-		Width(contentWidth).
-		Align(lipgloss.Center).
-		Foreground(lipgloss.Color("62")).
-		Bold(true).
-		Render("Сводка") + "\n"
+	// 3. Блок вывода последствий (ошибки/предупреждения) и управления
+	centerStyle := lipgloss.NewStyle().Width(contentWidth).Align(lipgloss.Center)
 
-	// 2. СВОДКА: Собираем пункты в отдельный массив (БЕЗ заголовка)
-	var summaryLines []string
-
-	if !m.Checks.IsSudo {
-		summaryLines = append(summaryLines, okMark+" Безопасность: OK")
-	}
-	if m.Checks.HasWine {
-		summaryLines = append(summaryLines, okMark+" Proton: OK")
-	}
-	if m.Checks.HasGameMode {
-		summaryLines = append(summaryLines, okMark+" GameMode: OK")
+	if len(errors) > 0 {
+		for _, err := range errors {
+			s += centerStyle.Render(crossStyle.Render(err)) + "\n"
+		}
+		s += "\n"
+		s += centerStyle.Render(dimStyle.Render("[ Нажмите Ctrl+C для выхода ]"))
 	} else {
-		summaryLines = append(summaryLines, zapMark+" GameMode: отсутствует (не критично)")
+		if len(warnings) > 0 {
+			for _, warn := range warnings {
+				s += centerStyle.Render(warnStyle.Render(warn)) + "\n"
+			}
+			s += "\n"
+		} else {
+			s += "\n\n" // Резервируем место под предупреждения
+		}
+		s += centerStyle.Render("[ Enter - Продолжить установку ]")
 	}
-	if !m.Checks.HasNVAPI {
-		summaryLines = append(summaryLines, okMark+" NVAPI: проблем нет")
-	} else {
-		summaryLines = append(summaryLines, okMark+" NVAPI: доступен")
-	}
-
-	// 3. Склеиваем строки сводки и центрируем получившийся блок с чекбоксами
-	sumBlock := lipgloss.JoinVertical(lipgloss.Left, summaryLines...)
-	s += lipgloss.PlaceHorizontal(contentWidth, lipgloss.Center, sumBlock) + "\n\n"
-
-	s += dimStyle.Render(sep) + "\n\n"
-
-	// Кнопка продолжения
-	s += promptStyle.Render("[ Enter - Продолжить установку ]")
 
 	return s
 }

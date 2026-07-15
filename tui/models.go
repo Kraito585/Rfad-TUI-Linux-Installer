@@ -29,7 +29,7 @@ type SystemChecks struct {
 // NewInstallConfig возвращает конфиг с дефолтными значениями
 func NewInstallConfig() *InstallConfig {
 	return &InstallConfig{
-		GraphicsMod:     "ENB",
+		GraphicsMod:     "",
 		UseFSR:          false,
 		FSRLevel:        1,
 		BaseWidth:       1920,

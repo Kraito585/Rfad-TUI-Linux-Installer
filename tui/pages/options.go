@@ -24,6 +24,11 @@ func NewOptionsPage(cfg *tui.InstallConfig) OptionsPage {
 	heightInput := components.NewInput("Высота", 8)
 	heightInput.Model.SetValue(cfg.ResHeight)
 
+	// Если в конфиге было пусто или старое значение, ставим "Без мода" по умолчанию
+	if cfg.GraphicsMod == "" {
+		cfg.GraphicsMod = "Без мода"
+	}
+
 	return OptionsPage{
 		Config:     cfg,
 		focusIndex: 0,
@@ -33,7 +38,6 @@ func NewOptionsPage(cfg *tui.InstallConfig) OptionsPage {
 
 func (m OptionsPage) Init() tea.Cmd { return nil }
 
-// getNextIndex помогает прыгать через скрытые элементы (инпуты)
 func (m OptionsPage) getNextIndex(dir int) int {
 	next := m.focusIndex + dir
 
@@ -44,13 +48,11 @@ func (m OptionsPage) getNextIndex(dir int) int {
 			next = 0
 		}
 
-		// Пропускаем меню пресетов, если FSR выключен
 		if !m.Config.UseFSR && (next == 2 || next == 3 || next == 4) {
 			next += dir
 			continue
 		}
 
-		// Пропускаем инпуты, если выбран не "Своё" (не Level 4)
 		if m.Config.UseFSR && m.Config.FSRLevel != 4 && (next == 3 || next == 4) {
 			next += dir
 			continue
@@ -70,10 +72,18 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 		case "down", "tab":
 			m.focusIndex = m.getNextIndex(1)
 
-		// Переключение пресетов стрелками Влево/Вправо
 		case "left":
-			if m.focusIndex == 2 {
-				// Логика переключения: 3 (25) -> 2 (50) -> 1 (75) -> 4 (Своё)
+			// Логика переключения графики влево
+			if m.focusIndex == 0 {
+				switch m.Config.GraphicsMod {
+				case "Без мода":
+					m.Config.GraphicsMod = "ReShade"
+				case "ENB":
+					m.Config.GraphicsMod = "Без мода"
+				case "ReShade":
+					m.Config.GraphicsMod = "ENB"
+				}
+			} else if m.focusIndex == 2 {
 				switch m.Config.FSRLevel {
 				case 3:
 					m.Config.FSRLevel = 4
@@ -86,7 +96,17 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				}
 			}
 		case "right":
-			if m.focusIndex == 2 {
+			// Логика переключения графики вправо
+			if m.focusIndex == 0 {
+				switch m.Config.GraphicsMod {
+				case "Без мода":
+					m.Config.GraphicsMod = "ENB"
+				case "ENB":
+					m.Config.GraphicsMod = "ReShade"
+				case "ReShade":
+					m.Config.GraphicsMod = "Без мода"
+				}
+			} else if m.focusIndex == 2 {
 				switch m.Config.FSRLevel {
 				case 3:
 					m.Config.FSRLevel = 2
@@ -102,15 +122,18 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 		case "enter", " ":
 			switch m.focusIndex {
 			case 0:
-				if m.Config.GraphicsMod == "ENB" {
-					m.Config.GraphicsMod = "ReShade"
-				} else {
+				// Enter тоже циклично переключает графику
+				switch m.Config.GraphicsMod {
+				case "Без мода":
 					m.Config.GraphicsMod = "ENB"
+				case "ENB":
+					m.Config.GraphicsMod = "ReShade"
+				case "ReShade":
+					m.Config.GraphicsMod = "Без мода"
 				}
 			case 1:
 				m.Config.UseFSR = !m.Config.UseFSR
 			case 2:
-				// Enter на пресетах тоже переключает их вправо
 				switch m.Config.FSRLevel {
 				case 3:
 					m.Config.FSRLevel = 2
@@ -126,11 +149,11 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 			case 6:
 				m.Config.CreateShortcuts = !m.Config.CreateShortcuts
 			case 7:
-				return m, func() tea.Msg { return ChangePageMsg{Page: PageInstallPath} } // Назад
+				return m, func() tea.Msg { return ChangePageMsg{Page: PageInstallPath} }
 			case 8:
 				m.Config.ResWidth = m.inputs[0].Value()
 				m.Config.ResHeight = m.inputs[1].Value()
-				return m, func() tea.Msg { return ChangePageMsg{Page: PageSummary} } // Далее
+				return m, func() tea.Msg { return ChangePageMsg{Page: PageSummary} }
 			}
 		}
 	}
@@ -153,20 +176,43 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 
 func (m OptionsPage) View() string {
 	var s string
-	s += "Настройка дополнительных параметров:\n\n"
 
-	// 0: Графика
-	cursor := "  "
-	if m.focusIndex == 0 {
-		cursor = "> "
+	title := lipgloss.NewStyle().Width(46).Align(lipgloss.Center).Render("Настройка дополнительных параметров:")
+	s += title + "\n\n"
+
+	// --- ДИНАМИЧЕСКИЙ ОТСТУП СВЕРХУ ---
+	// Если FSR выключен, добавляем 1 строку сверху, чтобы интерфейс "дышал"
+	if !m.Config.UseFSR {
+		s += "\n"
 	}
+
+	// === 0: ГРАФИЧЕСКИЙ МОД ===
+	cMod := "  "
+	if m.focusIndex == 0 {
+		cMod = "> "
+	}
+
+	mods := []string{"Без мода", "ENB", "ReShade"}
+	var renderedMods []string
+
+	for _, mod := range mods {
+		style := lipgloss.NewStyle().Padding(0, 1)
+		if m.Config.GraphicsMod == mod {
+			style = style.Background(lipgloss.Color("62")).Foreground(lipgloss.Color("255"))
+		} else {
+			style = style.Foreground(lipgloss.Color("240"))
+		}
+		renderedMods = append(renderedMods, style.Render(mod))
+	}
+
+	modRow := strings.Join(renderedMods, " ")
 	styleMod := lipgloss.NewStyle()
 	if m.focusIndex == 0 {
 		styleMod = styleMod.Foreground(lipgloss.Color("62")).Bold(true)
 	}
-	s += cursor + styleMod.Render(fmt.Sprintf("Графический мод: [ %s ]", m.Config.GraphicsMod)) + "\n\n"
 
-	// Вспомогательная функция для чекбоксов
+	s += cMod + styleMod.Render("Графический мод: ") + modRow + "\n\n"
+
 	renderCheckbox := func(idx int, label string, isChecked bool) string {
 		c := "  "
 		if m.focusIndex == idx {
@@ -183,24 +229,23 @@ func (m OptionsPage) View() string {
 		return c + style.Render(fmt.Sprintf("%s %s", check, label)) + "\n"
 	}
 
-	// 1: FSR Вкл/Выкл
+	// === 1: FSR Вкл/Выкл ===
 	s += renderCheckbox(1, "Включить upscale (FSR 3.0)", m.Config.UseFSR)
 
-	// 2: FSR Пресеты (рендерим горизонтально!)
+	// === 2: FSR Пресеты ===
 	if m.Config.UseFSR {
-		c := "  "
+		cFsr := "  "
 		if m.focusIndex == 2 {
-			c = "> "
+			cFsr = "> "
 		}
 
 		items := []string{"25%", "50%", "75%", "Своё"}
-		levels := []int{3, 2, 1, 4} // Твой порядок в коде!
+		levels := []int{3, 2, 1, 4}
 
 		var renderedItems []string
 		for i, lvl := range levels {
 			style := lipgloss.NewStyle().Padding(0, 1)
 			if m.Config.FSRLevel == lvl {
-				// Активный пресет выделяем фоном
 				style = style.Background(lipgloss.Color("62")).Foreground(lipgloss.Color("255"))
 			} else {
 				style = style.Foreground(lipgloss.Color("240"))
@@ -209,12 +254,12 @@ func (m OptionsPage) View() string {
 		}
 
 		presetRow := strings.Join(renderedItems, " ")
-		style := lipgloss.NewStyle()
+		styleFsr := lipgloss.NewStyle()
 		if m.focusIndex == 2 {
-			style = style.Foreground(lipgloss.Color("62")).Bold(true)
+			styleFsr = styleFsr.Foreground(lipgloss.Color("62")).Bold(true)
 		}
 
-		s += c + style.Render("Уровень FSR: ") + presetRow + "\n"
+		s += cFsr + styleFsr.Render("Уровень FSR:     ") + presetRow + "\n"
 
 		// 3 и 4: Инпуты для "Своё"
 		if m.Config.FSRLevel == 4 {
@@ -230,17 +275,22 @@ func (m OptionsPage) View() string {
 				hCursor = "> "
 			}
 
-			// Занимает 2 строки (пустая строка + строка с инпутами)
 			s += "\n  " + wCursor + "Ширина: " + wView + "   " + hCursor + "Высота: " + hView + "\n"
-		} else {
-			// Резервируем ровно столько же места (2 невидимые строки), чтобы интерфейс не прыгал
-			s += "\n\n"
 		}
+		// Убрали else с \n\n
 	}
+	// Убрали else с \n\n\n
 
 	s += "\n"
 	s += renderCheckbox(5, "Установить Steam Fix (достижения)", m.Config.UseSteamFix)
 	s += renderCheckbox(6, "Создать ярлыки на рабочем столе", m.Config.CreateShortcuts)
+
+	// --- ДИНАМИЧЕСКИЙ ОТСТУП СНИЗУ ---
+	// Если мы не показываем инпуты ширины/высоты, нам нужно компенсировать 2 строки перед кнопками
+	if !m.Config.UseFSR || m.Config.FSRLevel != 4 {
+		s += "\n\n"
+	}
+
 	s += "\n"
 
 	// Кнопки Назад / Далее
@@ -256,7 +306,18 @@ func (m OptionsPage) View() string {
 		btnNext = activeBtnStyle.Render("Далее")
 	}
 
-	s += lipgloss.NewStyle().MarginTop(1).MarginLeft(2).Render(lipgloss.JoinHorizontal(lipgloss.Center, btnBack, "        ", btnNext))
+	buttonsRow := lipgloss.JoinHorizontal(lipgloss.Center, btnBack, "        ", btnNext)
 
-	return lipgloss.NewStyle().Width(64).Render(s)
+	// ФИНАЛЬНАЯ СБОРКА БЕЗ СМЕЩЕНИЙ
+	textBox := lipgloss.NewStyle().
+		Width(46).
+		Align(lipgloss.Left).
+		Render(s)
+
+	buttonBox := lipgloss.NewStyle().
+		Width(46).
+		Align(lipgloss.Center).
+		Render(buttonsRow)
+
+	return textBox + "\n" + buttonBox
 }

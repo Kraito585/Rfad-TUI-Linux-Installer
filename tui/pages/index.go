@@ -65,8 +65,16 @@ type Index struct {
 	BoxWidth int
 }
 
-func NewIndex(startChan chan *tui.InstallConfig, ascii string, isSudo, hasWine, hasGameMode, hasNVAPI bool) Index {
+func NewIndex(startChan chan *tui.InstallConfig, ascii string, isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth, screenHeight int) Index {
 	cfg := tui.NewInstallConfig()
+
+	// ПРОБРОС РАЗРЕШЕНИЯ В КОНФИГ:
+	// Перезаписываем дефолтные 1920x1080 реальными данными из системы
+	cfg.BaseWidth = screenWidth
+	cfg.BaseHeight = screenHeight
+	cfg.ResWidth = fmt.Sprintf("%d", screenWidth)
+	cfg.ResHeight = fmt.Sprintf("%d", screenHeight)
+
 	boxWidth := 70
 
 	if ascii != "" {
@@ -84,6 +92,9 @@ func NewIndex(startChan chan *tui.InstallConfig, ascii string, isSudo, hasWine, 
 		HasWine:     hasWine,
 		HasGameMode: hasGameMode,
 		HasNVAPI:    hasNVAPI,
+		// Пробрасываем в проверки для потенциального использования в будущем
+		ScreenWidth:  screenWidth,
+		ScreenHeight: screenHeight,
 	}
 
 	return Index{
@@ -314,6 +325,9 @@ func (m Index) View() string {
 	}
 
 	bodyBlock := lipgloss.NewStyle().Align(lipgloss.Left).Render(rawBody)
+
+	bodyBlock = lipgloss.PlaceVertical(16, lipgloss.Center, bodyBlock)
+
 	body := lipgloss.PlaceHorizontal(boxWidth, lipgloss.Center, bodyBlock)
 
 	// 3. Подвал
