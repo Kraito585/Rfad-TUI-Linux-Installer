@@ -53,8 +53,8 @@ func (s StatusBar) Update(msg tea.Msg) (StatusBar, tea.Cmd) {
 // Устанавливаем процент (вызывается из родителя)
 func (s *StatusBar) SetPercent(percent float64) tea.Cmd {
 	s.IsActive = true
-	s.progBar.SetPercent(percent)
-	return nil
+	return s.progBar.SetPercent(percent)
+
 }
 
 func (s StatusBar) View() string {

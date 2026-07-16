@@ -188,7 +188,7 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch keyMsg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
-		case "i", "I", "ш", "Ш":
+		case "ctrl+i":
 			m.ShowLogs = !m.ShowLogs
 			if m.ShowLogs {
 				m.LogLines = tailLogs(core.LogPath(), 10)
@@ -331,7 +331,7 @@ func (m Index) View() string {
 	body := lipgloss.PlaceHorizontal(boxWidth, lipgloss.Center, bodyBlock)
 
 	// 3. Подвал
-	footerText := " Нажмите 'i' для логов | 'ctrl+c' для выхода "
+	footerText := " Нажмите 'Ctrl+I' для логов | 'ctrl+c' для выхода "
 	if m.Done {
 		footerText = " Нажмите 'ctrl+c' для выхода "
 	}
