@@ -248,6 +248,7 @@ func main() {
 
 		gamePath := cfg.InstallPath
 
+		// Изолируем весь кэш в текущей рабочей директории (bypass /tmp)
 		cacheDir := filepath.Join(".", "local_cache")
 		os.MkdirAll(cacheDir, 0755)
 		core.LogInfo("Временная папка загрузок установлена в: %s", cacheDir)
@@ -275,6 +276,7 @@ func main() {
 		// === ЭТАП 1: УСТАНОВКА ЧИСТОЙ ИГРЫ ЧЕРЕЗ WINE ===
 		core.LogInfo("=== ЭТАП 1: Установка базовой игры через Wine ===")
 
+		// Формируем компоненты динамически на основе выбора пользователя
 		components := "rfad_se"
 		if cfg.GraphicsMod == "ENB" {
 			components += ",enb"
@@ -483,12 +485,14 @@ Tasks=`, winInstallPath, components)
 		if cfg.UseSteamFix {
 			core.LogInfo("=== ЭТАП 6: Настройка ярлыка Steam ===")
 
+			// 1. Ставим установку на паузу и спрашиваем пользователя
 			core.LogInfo("Ожидание подтверждения на закрытие Steam...")
 			replyChan := make(chan bool)
 			p.Send(pages.PromptSteamCloseMsg{
 				ReplyChan: replyChan,
 			})
 
+			// Горутина замирает здесь, пока UI не пришлет true или false
 			shouldContinue := <-replyChan
 
 			if !shouldContinue {
@@ -496,6 +500,7 @@ Tasks=`, winInstallPath, components)
 			} else {
 				core.LogInfo("Пользователь дал согласие. Закрываем Steam...")
 
+				// РЕАЛЬНО ЗАКРЫВАЕМ STEAM ПЕРЕД НАЧАЛОМ РАБОТЫ С ФАЙЛАМИ
 				core.ShutdownSteam()
 
 				err = core.ApplySteamFix(cfg.InstallPath, bundledAssets)
@@ -520,12 +525,13 @@ Tasks=`, winInstallPath, components)
 				// ДИНАМИЧЕСКАЯ СБОРКА ФЛАГОВ ЗАПУСКА
 				var launchParts []string
 				launchParts = append(launchParts, "STEAM_APP_ID=489830")
-				launchParts = append(launchParts, `WINEDLLOVERRIDES="xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n"`)
+
+				launchParts = append(launchParts, `WINEDLLOVERRIDES='xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n'`)
 
 				if cfg.UseFSR {
 					launchParts = append(launchParts, "WINE_FULLSCREEN_FSR=1", "WINE_FULLSCREEN_FSR_STRENGTH=2")
 				}
-
+				// Возможно в будубющем буду включать cuda в конфигах
 				if hasNVAPI {
 					launchParts = append(launchParts, "PROTON_ENABLE_NVAPI=1")
 				}
@@ -534,7 +540,7 @@ Tasks=`, winInstallPath, components)
 					launchParts = append(launchParts, "gamemoderun")
 				}
 
-				mainCmd := fmt.Sprintf(`bash "%s" %%command%% "moshortcut://:SKSE"`, prelaunchScript)
+				mainCmd := fmt.Sprintf(`bash '%s' %%command%% 'moshortcut://:SKSE'`, prelaunchScript)
 				launchParts = append(launchParts, mainCmd)
 
 				launchOpts := strings.Join(launchParts, " ")

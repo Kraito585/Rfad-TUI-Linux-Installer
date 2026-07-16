@@ -287,6 +287,7 @@ export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/steam"
 	return scriptPath, err
 }
 
+// подмена префикса и proton на лету перед запуском
 func CreateSteamPrelaunchScript(installPath string) (string, error) {
 	scriptPath := filepath.Join(installPath, "steam_prelaunch.sh")
 
@@ -306,7 +307,7 @@ if [ ! -f "$MARKER_FILE" ]; then
     echo "Первый запуск: инициализация префикса через PortProton..."
     
     # Запускаем MO2 через PortProton. 
-    # Он скачает Mono/Gecko и закроется (из-за SteamStub или bwrap), что нам и нужно!
+    # Он скачает Mono/Gecko и закроется, что нам и нужно!
     /usr/bin/portproton "$MO2_EXE"
     
     # Ставим флаг, чтобы больше не вызывать PortProton
@@ -327,26 +328,32 @@ if [ ! -L "$STEAM_PFX" ]; then
     ln -s "$PP_PREFIX" "$STEAM_PFX"
 fi
 
-# 3. ЗАПУСК ИГРЫ ЧЕРЕЗ STEAM PROTON
-# Символ $@ выполнит то, что передал Steam (proton run ModOrganizer.exe ...)
-"$@"
-
-# Указываем версию, которую скачала твоя функция InstallGEProton в Go
+# 3. ПОДМЕНА PROTON НА GE-PROTON В АРГУМЕНТАХ STEAM
 GE_VERSION="GE-Proton11-1"
 CUSTOM_PROTON="$HOME/.steam/root/compatibilitytools.d/$GE_VERSION/proton"
 
-# 4. ЗАПУСК ИГРЫ ЧЕРЕЗ СВОЙ PROTON
-if [ -f "$CUSTOM_PROTON" ]; then
-    echo "Запуск через кастомный Proton: $GE_VERSION"
-    # Команда shift удаляет первый аргумент из $@ (путь к системному Proton, который передал Steam)
-    shift
-    
-    # Запускаем наш GE-Proton, передавая ему оставшиеся аргументы (run ModOrganizer.exe ...)
-    "$CUSTOM_PROTON" "$@"
-else
-    echo "GE-Proton не найден, откат на системный Proton"
-    "$@"
-fi
+# Создаем новый пустой массив для команды запуска
+LAUNCH_ARGS=()
+
+for arg in "$@"; do
+    # Если аргумент заканчивается на "/proton" (это бинарник системного протона)
+    if [[ "$arg" == *"/proton" ]]; then
+        if [ -f "$CUSTOM_PROTON" ]; then
+            echo "Найден системный Proton, подменяем на: $GE_VERSION"
+            LAUNCH_ARGS+=("$CUSTOM_PROTON")
+        else
+            echo "GE-Proton не найден, используем системный: $arg"
+            LAUNCH_ARGS+=("$arg")
+        fi
+    else
+        # Остальные аргументы оставляем без изменений
+        LAUNCH_ARGS+=("$arg")
+    fi
+done
+
+# 4. ЗАПУСК ИГРЫ
+echo "Итоговая команда запуска: ${LAUNCH_ARGS[@]}"
+"${LAUNCH_ARGS[@]}"
 
 # 5. ОТКАТ ПРЕФИКСА ПОСЛЕ ЗАКРЫТИЯ ИГРЫ
 rm -f "$STEAM_PFX"

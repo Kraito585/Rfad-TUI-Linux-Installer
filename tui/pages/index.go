@@ -247,7 +247,7 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Done = true
 		m.Status.Message = " Установка успешно завершена!"
 		m.Status.SetPercent(1.0)
-		return m, nil
+		return m, tea.Batch(cmds...)
 	}
 
 	// 3. Маршрутизация обновлений по страницам
