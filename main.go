@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"embed"
 	"flag"
 	"fmt"
 	"os"
@@ -20,9 +19,6 @@ import (
 	"rfad-installer/tui/pages"
 )
 
-//go:embed src/*
-var bundledAssets embed.FS
-
 func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth, screenHeight int) {
 	core.LogInfo("=== Выполнение предполетных проверок ===")
 
@@ -34,7 +30,7 @@ func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth
 		core.LogInfo("Запуск от обычного пользователя")
 	}
 
-	// 2. Проверка Wine/Proton (wine, wine64, proton)
+	// 2. Проверка Proton
 	hasWine = checkBinary("proton")
 
 	// Проверка PortProton (PATH, локальный путь, Flatpak)
@@ -208,13 +204,14 @@ func fileExists(path string) bool {
 }
 
 func main() {
+	var err error
 	ensureTerminal()
 
 	showLogs := flag.Bool("show-logs", false, "Открыть окно терминала с логами в реальном времени")
 	localTest := flag.Bool("local-test", false, "Использовать закешированные архивы для быстрого тестирования")
 	flag.Parse()
 
-	if err := core.InitLogger(); err != nil {
+	if err = core.InitLogger(); err != nil {
 		fmt.Fprintf(os.Stderr, "Предупреждение: %v\n", err)
 	}
 	defer core.CloseLogger()
@@ -230,21 +227,15 @@ func main() {
 
 	startChan := make(chan *tui.InstallConfig)
 
-	asciiBytes, err := bundledAssets.ReadFile("src/install.ascii")
+	asciiBytes := getAscii()
 	asciiArt := ""
-	if err == nil {
-		asciiArt = string(asciiBytes)
-	} else {
-		core.LogWarn("Не удалось загрузить install.ascii: %v", err)
-	}
+	asciiArt = string(asciiBytes)
 
 	page := pages.NewIndex(startChan, asciiArt, isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight)
 	p := tea.NewProgram(page, tea.WithInput(os.Stdin))
 
 	go func() {
 		cfg := <-startChan
-
-		folderID := "1JUOctbsugh2IIEUCWcBkupXYVYoJMg4G"
 
 		gamePath := cfg.InstallPath
 
@@ -260,7 +251,7 @@ func main() {
 		wineExePath := filepath.Join(portableWineDir, "bin", "wine")
 
 		if !fileExists(wineExePath) {
-			err := core.GetPortableWine(cacheDir, portableWineDir, func(percent float64, detail string) {
+			err = core.GetPortableWine(cacheDir, portableWineDir, func(percent float64, detail string) {
 				p.Send(pages.ProgressMsg{
 					Percent: percent,
 					Message: detail,
@@ -338,15 +329,9 @@ Tasks=`, winInstallPath, components)
 			return
 		}
 
-		// === ЭТАП 2: ЗАГРУЗКА И УСТАНОВКА ОБНОВЛЕНИЯ ===
+		// === ЭТАП 2: ЗАГРУЗКА ОБНОВЛЕНИЯ ===
 		core.LogInfo("=== ЭТАП 2: Загрузка обновления ===")
-
-		creds, err := bundledAssets.ReadFile("src/credentials.json")
-		if err != nil {
-			p.Send(pages.ErrorMsg{Err: fmt.Errorf("не найден файл ключей: %v", err)})
-			return
-		}
-
+		creds := getCreds()
 		updateArchivePath := filepath.Join(cacheDir, "update.zip")
 
 		if fileExists(updateArchivePath) {
@@ -354,10 +339,10 @@ Tasks=`, winInstallPath, components)
 			p.Send(pages.ProgressMsg{Percent: 1.0, Message: "Используется локальный архив обновления..."})
 			time.Sleep(500 * time.Millisecond)
 		} else {
-			err = core.DownloadArchive(
+			// Вызываем универсальную функцию (реализация подставится компилятором)
+			err = core.DownloadUpdate(
 				context.Background(),
 				creds,
-				folderID,
 				updateArchivePath,
 				func(percent float64) {
 					p.Send(pages.ProgressMsg{
@@ -410,12 +395,18 @@ Tasks=`, winInstallPath, components)
 			p.Send(pages.ProgressMsg{Percent: 1.0, Message: "Используется локальный архив префикса..."})
 			time.Sleep(500 * time.Millisecond)
 		} else {
-			err = core.DownloadPrefixDirectly(context.Background(), creds, prefixArchivePath, func(percent float64) {
-				p.Send(pages.ProgressMsg{
-					Percent: percent,
-					Message: fmt.Sprintf("Загрузка префикса: %.1f%%", percent*100),
-				})
-			})
+			// Снова универсальный вызов без ключей
+			err = core.DownloadPrefix(
+				context.Background(),
+				creds,
+				prefixArchivePath,
+				func(percent float64) {
+					p.Send(pages.ProgressMsg{
+						Percent: percent,
+						Message: fmt.Sprintf("Загрузка префикса: %.1f%%", percent*100),
+					})
+				},
+			)
 			if err != nil {
 				p.Send(pages.ErrorMsg{Err: err})
 				return
@@ -463,7 +454,7 @@ Tasks=`, winInstallPath, components)
 			// Необходим для коректного запуска RFAD из steam в случае если mo2
 			// был запущен раньше чем игра, поскольку в запуск игры вшит одноразовый старт mo2
 			// для открытия контекстного окна portproton с дозогрузкой библиотек
-			if err := core.CreateMO2PythonPlugin(cfg.InstallPath); err != nil {
+			if err = core.CreateMO2PythonPlugin(cfg.InstallPath); err != nil {
 				core.LogWarn("Не удалось создать Python-плагин: %v", err)
 			}
 		} else {
@@ -558,7 +549,7 @@ Tasks=`, winInstallPath, components)
 		// === Этап 7: Создание шорткатов ===
 		core.LogInfo("=== ЭТАП 7: Создание ярлыков ===")
 		if cfg.CreateShortcuts {
-			err := core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix, bundledAssets)
+			err = core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix, bundledAssets)
 			if err != nil {
 				core.LogError("Ошибка создания ярлыков: %v", err)
 				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания ярлыков: %v", err)})
@@ -583,7 +574,7 @@ Tasks=`, winInstallPath, components)
 		p.Send(pages.DoneMsg{})
 	}()
 
-	if _, err := p.Run(); err != nil {
+	if _, err = p.Run(); err != nil {
 		core.LogError("Ошибка TUI: %v", err)
 		fmt.Fprintf(os.Stderr, "Ошибка TUI: %v\n", err)
 		os.Exit(1)
