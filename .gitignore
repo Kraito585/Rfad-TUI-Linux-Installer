@@ -1,6 +1,7 @@
 *.log
-rfad-installer
+rfad-installer*
 ./builds
 src/credentials.json
 *.zip
 local_cache/
+sha256-*
