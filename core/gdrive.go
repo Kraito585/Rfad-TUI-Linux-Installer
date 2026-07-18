@@ -1,3 +1,5 @@
+//go:build gdrive
+
 package core
 
 import (
@@ -11,21 +13,11 @@ import (
 	"google.golang.org/api/option"
 )
 
-// =======================================================================
-//                Текущая версия используемая в проекте
-//      Подниму бэкэнд чтобы перезаливать обновы на S3 тогда и заменю
-//	    Пока используем загрузку из google drive что крайне не надёжно
-// Функции использующие google drive работают стабильно обновлятся не будут
-
-// █   █  ███  █████     ████ █   █ ████   ███  ████  █████ █████ ████
-// ██  █░█ ░░█  ░█░░░   █ ░░░░█░  █░█░░░█ █ ░░█ █░░░█  ░█░░░█░░░░░█░░░█
-// █░█ █░█░ ░█░  █░░░░   ███░░█░░ █░████░░█░ ░█░████░░  █░░░████░░█░░░█░
-// █░░██░█░░ █░░ █░░      ░░█ █░░ █░█░░░░ █░░ █░█░░█░ ░ █░░ █░░░░ █░░ █░░
-// █░░ █░░███ ░░ █░░    ████░░ ███ ░█░░░░░ ███ ░█░░░█░  █░░ █████░████ ░░
-//  ░░  ░░ ░░░ ░  ░░     ░░░░ ░ ░░░ ░░░     ░░░ ░░░  ░   ░░  ░░░░░ ░░░░ ░
-//   ░   ░  ░░░    ░      ░░░░   ░░░  ░      ░░░  ░   ░   ░   ░░░░░ ░░░░
-
-// =======================================================================
+// Зашиваем ID, так как они нужны только Google Drive
+const (
+	updateFolderID = "1JUOctbsugh2IIEUCWcBkupXYVYoJMg4G"
+	prefixFileID   = "1HxR7TIpXculDlJ9qpd8gnCN4qSzCMOgH"
+)
 
 type progressWriter struct {
 	Total      int64
@@ -42,28 +34,28 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// DownloadArchive теперь включает логику повторов при сбоях сети
-func DownloadArchive(ctx context.Context, credsJSON []byte, folderID string, destPath string, progressCb func(float64)) error {
+// DownloadUpdate скачивает обновление
+func DownloadUpdate(ctx context.Context, creds []byte, destPath string, progressCb func(float64)) error {
 	maxRetries := 3
 	var err error
 
 	for i := 0; i < maxRetries; i++ {
-		err = downloadLogic(ctx, credsJSON, folderID, destPath, progressCb)
+		err = downloadLogic(ctx, creds, updateFolderID, destPath, progressCb)
 		if err == nil {
-			return nil // Успех
+			return nil
 		}
-
 		time.Sleep(3 * time.Second)
 	}
-	return fmt.Errorf("загрузка прервана после %d попыток: %v", maxRetries, err)
+	return fmt.Errorf("загрузка обновления прервана после %d попыток: %v", maxRetries, err)
 }
 
-// Вспомогательная функция для логики загрузки
-func downloadLogic(ctx context.Context, credsJSON []byte, folderID string, destPath string, progressCb func(float64)) error {
-	LogInfo("DownloadArchive: поиск архива в папке Google Drive ID=%s", folderID)
-	srv, err := drive.NewService(ctx, option.WithCredentialsJSON(credsJSON))
+func downloadLogic(ctx context.Context, creds []byte, folderID string, destPath string, progressCb func(float64)) error {
+	LogInfo("DownloadUpdate: поиск архива в папке Google Drive ID=%s", folderID)
+
+	// Инициализируем сервис, используя переданные байты credentials.json
+	srv, err := drive.NewService(ctx, option.WithCredentialsJSON(creds))
 	if err != nil {
-		return err
+		return fmt.Errorf("ошибка авторизации Google Drive API: %v", err)
 	}
 
 	query := fmt.Sprintf("'%s' in parents and mimeType='application/x-zip-compressed'", folderID)
@@ -73,12 +65,12 @@ func downloadLogic(ctx context.Context, credsJSON []byte, folderID string, destP
 	}
 
 	if len(r.Files) == 0 {
-		LogError("DownloadArchive: архив не найден в папке")
+		LogError("DownloadUpdate: архив не найден в папке")
 		return fmt.Errorf("архив не найден")
 	}
 
 	fileID := r.Files[0].Id
-	LogInfo("DownloadArchive: найден файл %s (ID=%s, размер=%d байт)", r.Files[0].Name, fileID, r.Files[0].Size)
+	LogInfo("DownloadUpdate: найден файл %s (ID=%s, размер=%d байт)", r.Files[0].Name, fileID, r.Files[0].Size)
 	res, err := srv.Files.Get(fileID).Download()
 	if err != nil {
 		return err
@@ -98,20 +90,20 @@ func downloadLogic(ctx context.Context, credsJSON []byte, folderID string, destP
 
 	_, err = io.Copy(out, io.TeeReader(res.Body, pw))
 	if err != nil {
-		LogError("DownloadArchive: ошибка при скачивании: %v", err)
+		LogError("DownloadUpdate: ошибка при скачивании: %v", err)
 		return err
 	}
-	LogInfo("DownloadArchive: архив скачан в %s", destPath)
+	LogInfo("DownloadUpdate: архив скачан в %s", destPath)
 	return nil
 }
 
-func DownloadPrefixDirectly(ctx context.Context, credsJSON []byte, destPath string, progressCb func(float64)) error {
-	fileID := "1HxR7TIpXculDlJ9qpd8gnCN4qSzCMOgH"
+// DownloadPrefix скачивает префикс. Обрати внимание: сюда тоже добавлен параметр creds []byte
+func DownloadPrefix(ctx context.Context, creds []byte, destPath string, progressCb func(float64)) error {
 	maxRetries := 3
 	var err error
 
 	for i := 0; i < maxRetries; i++ {
-		err = downloadPrefixLogic(ctx, credsJSON, fileID, destPath, progressCb)
+		err = downloadPrefixLogic(ctx, creds, prefixFileID, destPath, progressCb)
 		if err == nil {
 			return nil
 		}
@@ -120,9 +112,11 @@ func DownloadPrefixDirectly(ctx context.Context, credsJSON []byte, destPath stri
 	return fmt.Errorf("загрузка префикса прервана после %d попыток: %v", maxRetries, err)
 }
 
-func downloadPrefixLogic(ctx context.Context, credsJSON []byte, fileID string, destPath string, progressCb func(float64)) error {
+func downloadPrefixLogic(ctx context.Context, creds []byte, fileID string, destPath string, progressCb func(float64)) error {
 	LogInfo("DownloadPrefix: начало загрузки префикса, fileID=%s", fileID)
-	srv, err := drive.NewService(ctx, option.WithCredentialsJSON(credsJSON))
+
+	// Инициализируем сервис
+	srv, err := drive.NewService(ctx, option.WithCredentialsJSON(creds))
 	if err != nil {
 		return fmt.Errorf("ошибка авторизации Google Drive API: %v", err)
 	}

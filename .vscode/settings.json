@@ -1,0 +1,6 @@
+{
+    "go.buildFlags": [
+        "-tags=cdn"
+        //"-tags=gdrive"
+    ]
+}
