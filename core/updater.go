@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // =======================================================================
@@ -106,46 +105,46 @@ func ProcessUpdate(gamePath string, archiveSrc string, bundledAssets embed.FS, p
 		}
 	}
 
-	_ = os.Remove(archiveDest)
-	LogUnpacking("ZIP-архив удалён после распаковки: %s", archiveDest)
+	// _ = os.Remove(archiveDest)
+	// LogUnpacking("ZIP-архив удалён после распаковки: %s", archiveDest)
 
-	if progressCb != nil {
-		progressCb(0.95, "Инъекция стабильного EngineFixes.dll...")
-	}
+	// if progressCb != nil {
+	// 	progressCb(0.95, "Инъекция стабильного EngineFixes.dll...")
+	// }
 
-	if progressCb != nil {
-		progressCb(0.95, "Инъекция стабильного EngineFixes.dll...")
-	}
+	// if progressCb != nil {
+	// 	progressCb(0.95, "Инъекция стабильного EngineFixes.dll...")
+	// }
 
-	LogInfo("Извлечение EngineFixes.dll из встроенных ресурсов")
-	stableDLL, err := bundledAssets.ReadFile("src/EngineFixes.dll")
-	if err != nil {
-		return fmt.Errorf("критическая ошибка: EngineFixes.dll не найден в src инсталлятора: %v", err)
-	}
+	// LogInfo("Извлечение EngineFixes.dll из встроенных ресурсов")
+	// stableDLL, err := bundledAssets.ReadFile("src/EngineFixes.dll")
+	// if err != nil {
+	// 	return fmt.Errorf("критическая ошибка: EngineFixes.dll не найден в src инсталлятора: %v", err)
+	// }
 
-	modsDir := filepath.Join(gamePath, "MO2/mods")
-	replacedCount := 0
+	// modsDir := filepath.Join(gamePath, "MO2/mods")
+	// replacedCount := 0
 
-	LogInfo("Сканирование модов для замены EngineFixes.dll в %s", modsDir)
-	err = filepath.Walk(modsDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() && strings.EqualFold(info.Name(), "enginefixes.dll") {
-			if writeErr := os.WriteFile(path, stableDLL, 0644); writeErr == nil {
-				replacedCount++
-			}
-		}
-		return nil
-	})
+	// LogInfo("Сканирование модов для замены EngineFixes.dll в %s", modsDir)
+	// err = filepath.Walk(modsDir, func(path string, info os.FileInfo, err error) error {
+	// 	if err != nil {
+	// 		return nil
+	// 	}
+	// 	if !info.IsDir() && strings.EqualFold(info.Name(), "enginefixes.dll") {
+	// 		if writeErr := os.WriteFile(path, stableDLL, 0644); writeErr == nil {
+	// 			replacedCount++
+	// 		}
+	// 	}
+	// 	return nil
+	// })
 
-	if replacedCount == 0 {
-		LogWarn("EngineFixes.dll не найден ни в одном моде, размещаем в RFAD_PATCH")
-		fallbackPath := filepath.Join(targetDir, "SKSE/Plugins/EngineFixes.dll")
-		os.MkdirAll(filepath.Dir(fallbackPath), 0755)
-		os.WriteFile(fallbackPath, stableDLL, 0644)
-	}
-	LogInfo("Заменено %d экземпляров EngineFixes.dll", replacedCount)
+	// if replacedCount == 0 {
+	// 	LogWarn("EngineFixes.dll не найден ни в одном моде, размещаем в RFAD_PATCH")
+	// 	fallbackPath := filepath.Join(targetDir, "SKSE/Plugins/EngineFixes.dll")
+	// 	os.MkdirAll(filepath.Dir(fallbackPath), 0755)
+	// 	os.WriteFile(fallbackPath, stableDLL, 0644)
+	// }
+	// LogInfo("Заменено %d экземпляров EngineFixes.dll", replacedCount)
 
 	if progressCb != nil {
 		progressCb(1.0, "Установка успешно завершена!")
