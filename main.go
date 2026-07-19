@@ -244,53 +244,10 @@ func main() {
 		os.MkdirAll(cacheDir, 0755)
 		core.LogInfo("Временная папка загрузок установлена в: %s", cacheDir)
 
-		// === ЭТАП 0.5: ПОДГОТОВКА СВОЕГО ДВИЖКА (PORTABLE WINE) ===
-		core.LogInfo("=== ЭТАП 0.5: Подготовка Portable Wine ===")
-
-		portableWineDir := filepath.Join(cacheDir, "wine")
-		wineExePath := filepath.Join(portableWineDir, "bin", "wine")
-
-		if !fileExists(wineExePath) {
-			err = core.GetPortableWine(cacheDir, portableWineDir, func(percent float64, detail string) {
-				p.Send(pages.ProgressMsg{
-					Percent: percent,
-					Message: detail,
-				})
-			})
-			if err != nil {
-				core.LogError("Ошибка подготовки Wine: %v", err)
-				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка загрузки движка: %v", err)})
-				return
-			}
-		}
-
-		// === ЭТАП 1: УСТАНОВКА ЧИСТОЙ ИГРЫ ЧЕРЕЗ WINE ===
-		core.LogInfo("=== ЭТАП 1: Установка базовой игры через Wine ===")
-
-		// Формируем компоненты динамически на основе выбора пользователя
-		components := "rfad_se"
-		if cfg.GraphicsMod == "ENB" {
-			components += ",enb"
-		} else if cfg.GraphicsMod == "ReShade" {
-			components += ",reshade"
-		}
-
-		winInstallPath := "Z:" + strings.ReplaceAll(cfg.InstallPath, "/", "\\")
-
-		infContent := fmt.Sprintf(`[Setup]
-Lang=english
-Dir=%s
-Group=RfaD SE
-NoIcons=1
-SetupType=custom
-Components=%s
-Tasks=`, winInstallPath, components)
+		// === ЭТАП 1: РАСПАКОВКА ИГРЫ ЧЕРЕЗ INNOEXTRACT ===
+		core.LogInfo("=== ЭТАП 1: Нативная распаковка базовой игры ===")
 
 		os.MkdirAll(cfg.InstallPath, 0755)
-		infPath := filepath.Join(cfg.InstallPath, "rfad_install.inf")
-		os.WriteFile(infPath, []byte(infContent), 0644)
-
-		winInfPath := "Z:" + strings.ReplaceAll(infPath, "/", "\\")
 
 		var isSuccess bool
 
@@ -308,10 +265,8 @@ Tasks=`, winInstallPath, components)
 		time.Sleep(500 * time.Millisecond)
 
 		err = core.ExtractInstaller(
-			wineExePath,
 			cfg.InstallerPath,
 			cfg.InstallPath,
-			winInfPath,
 			cfg.GraphicsMod,
 			func(percent float64, detail string) {
 				p.Send(pages.ProgressMsg{
@@ -320,9 +275,6 @@ Tasks=`, winInstallPath, components)
 				})
 			},
 		)
-
-		// Удаляем временный inf-файл после установки
-		os.Remove(infPath)
 
 		if err != nil {
 			p.Send(pages.ErrorMsg{Err: err})
