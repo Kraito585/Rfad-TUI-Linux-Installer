@@ -222,6 +222,13 @@ func main() {
 
 	core.LogInfo("Запуск Rfad-TUI-Linux-Installer")
 
+	cacheDir := filepath.Join(".", "local_cache")
+	os.MkdirAll(cacheDir, 0755)
+	core.LogInfo("Временная папка загрузок установлена в: %s", cacheDir)
+
+	core.LogInfo("Запуск фонового кэширования пресетов Community Shaders...")
+	core.FetchAndCachePresets(cacheDir)
+
 	isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight := RunSystemChecks()
 	core.LogInfo("Системные проверки пройдены: Sudo=%v, Wine=%v, GameMode=%v, NVAPI=%v, Screan=%v x %v", isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight)
 
@@ -240,9 +247,13 @@ func main() {
 		gamePath := cfg.InstallPath
 
 		// Изолируем весь кэш в текущей рабочей директории (bypass /tmp)
-		cacheDir := filepath.Join(".", "local_cache")
-		os.MkdirAll(cacheDir, 0755)
-		core.LogInfo("Временная папка загрузок установлена в: %s", cacheDir)
+
+		core.LogInfo("=== СТАРТ УСТАНОВКИ ===")
+		core.LogInfo("Выбранный графический мод: %s", cfg.GraphicsMod)
+		if cfg.GraphicsMod == "Community Shaders" {
+			core.LogInfo("Выбранный пресет: %s", cfg.ShaderPresetID)
+			// Тут ты можешь вытащить выбранные моды из стейта, если пробросишь их в cfg
+		}
 
 		// === ЭТАП 1: РАСПАКОВКА ИГРЫ ЧЕРЕЗ INNOEXTRACT ===
 		core.LogInfo("=== ЭТАП 1: Нативная распаковка базовой игры ===")

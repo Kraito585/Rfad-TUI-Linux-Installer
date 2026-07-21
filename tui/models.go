@@ -14,6 +14,8 @@ type InstallConfig struct {
 	ResHeight       string // Страница 3
 	UseSteamFix     bool   // Страница 3
 	CreateShortcuts bool   // Страница 3
+	ShaderPresetID  string
+	ShaderMods      map[string]bool
 }
 
 // SystemChecks хранит результаты предполётных проверок

@@ -24,7 +24,6 @@ func NewOptionsPage(cfg *tui.InstallConfig) OptionsPage {
 	heightInput := components.NewInput("Высота", 8)
 	heightInput.Model.SetValue(cfg.ResHeight)
 
-	// Если в конфиге было пусто или старое значение, ставим "Без мода" по умолчанию
 	if cfg.GraphicsMod == "" {
 		cfg.GraphicsMod = "Без мода"
 	}
@@ -38,14 +37,20 @@ func NewOptionsPage(cfg *tui.InstallConfig) OptionsPage {
 
 func (m OptionsPage) Init() tea.Cmd { return nil }
 
+// ДОБАВЛЕН МЕТОД ДЛЯ INDEX.GO
+func (m OptionsPage) IsAtBottom() bool {
+	return m.focusIndex == 6 // 6 - это индекс последнего чекбокса "Создать ярлыки"
+}
+
 func (m OptionsPage) getNextIndex(dir int) int {
 	next := m.focusIndex + dir
 
 	for {
+		// Жестко ограничиваем индексы (без зацикливания), чтобы работал FocusGate
 		if next < 0 {
-			next = 8
-		} else if next > 8 {
-			next = 0
+			return 0
+		} else if next > 6 {
+			return 6
 		}
 
 		if !m.Config.UseFSR && (next == 2 || next == 3 || next == 4) {
@@ -64,24 +69,26 @@ func (m OptionsPage) getNextIndex(dir int) int {
 func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 	var cmd tea.Cmd
 
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "shift+tab":
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
+		case "up":
 			m.focusIndex = m.getNextIndex(-1)
-		case "down", "tab":
+		case "down":
 			m.focusIndex = m.getNextIndex(1)
 
+		// Удалили tab / shift+tab, они теперь живут только в index.go
+
 		case "left":
-			// Логика переключения графики влево
 			if m.focusIndex == 0 {
 				switch m.Config.GraphicsMod {
 				case "Без мода":
-					m.Config.GraphicsMod = "ReShade"
+					m.Config.GraphicsMod = "Community Shaders"
 				case "ENB":
 					m.Config.GraphicsMod = "Без мода"
 				case "ReShade":
 					m.Config.GraphicsMod = "ENB"
+				case "Community Shaders":
+					m.Config.GraphicsMod = "ReShade"
 				}
 			} else if m.focusIndex == 2 {
 				switch m.Config.FSRLevel {
@@ -96,7 +103,6 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				}
 			}
 		case "right":
-			// Логика переключения графики вправо
 			if m.focusIndex == 0 {
 				switch m.Config.GraphicsMod {
 				case "Без мода":
@@ -104,6 +110,8 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				case "ENB":
 					m.Config.GraphicsMod = "ReShade"
 				case "ReShade":
+					m.Config.GraphicsMod = "Community Shaders"
+				case "Community Shaders":
 					m.Config.GraphicsMod = "Без мода"
 				}
 			} else if m.focusIndex == 2 {
@@ -122,13 +130,14 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 		case "enter", " ":
 			switch m.focusIndex {
 			case 0:
-				// Enter тоже циклично переключает графику
 				switch m.Config.GraphicsMod {
 				case "Без мода":
 					m.Config.GraphicsMod = "ENB"
 				case "ENB":
 					m.Config.GraphicsMod = "ReShade"
 				case "ReShade":
+					m.Config.GraphicsMod = "Community Shaders"
+				case "Community Shaders":
 					m.Config.GraphicsMod = "Без мода"
 				}
 			case 1:
@@ -148,24 +157,21 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				m.Config.UseSteamFix = !m.Config.UseSteamFix
 			case 6:
 				m.Config.CreateShortcuts = !m.Config.CreateShortcuts
-			case 7:
-				return m, func() tea.Msg { return ChangePageMsg{Page: PageInstallPath} }
-			case 8:
-				m.Config.ResWidth = m.inputs[0].Value()
-				m.Config.ResHeight = m.inputs[1].Value()
-				return m, func() tea.Msg { return ChangePageMsg{Page: PageSummary} }
 			}
 		}
 	}
 
+	// Обработка инпутов (разрешения)
 	if m.focusIndex == 3 {
 		m.inputs[0].Focus()
 		m.inputs[1].Blur()
 		m.inputs[0].Model, cmd = m.inputs[0].Model.Update(msg)
+		m.Config.ResWidth = m.inputs[0].Value() // Сохраняем на лету
 	} else if m.focusIndex == 4 {
 		m.inputs[0].Blur()
 		m.inputs[1].Focus()
 		m.inputs[1].Model, cmd = m.inputs[1].Model.Update(msg)
+		m.Config.ResHeight = m.inputs[1].Value() // Сохраняем на лету
 	} else {
 		m.inputs[0].Blur()
 		m.inputs[1].Blur()
@@ -176,23 +182,21 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 
 func (m OptionsPage) View() string {
 	var s string
+	boxWidth := 56
 
-	title := lipgloss.NewStyle().Width(46).Align(lipgloss.Center).Render("Настройка дополнительных параметров:")
+	title := lipgloss.NewStyle().Width(boxWidth).Align(lipgloss.Center).Render("Настройка дополнительных параметров:")
 	s += title + "\n\n"
 
-	// --- ДИНАМИЧЕСКИЙ ОТСТУП СВЕРХУ ---
-	// Если FSR выключен, добавляем 1 строку сверху, чтобы интерфейс "дышал"
 	if !m.Config.UseFSR {
 		s += "\n"
 	}
 
-	// === 0: ГРАФИЧЕСКИЙ МОД ===
 	cMod := "  "
 	if m.focusIndex == 0 {
 		cMod = "> "
 	}
 
-	mods := []string{"Без мода", "ENB", "ReShade"}
+	mods := []string{"Без мода", "ENB", "ReShade", "Community Shaders"}
 	var renderedMods []string
 
 	for _, mod := range mods {
@@ -229,10 +233,8 @@ func (m OptionsPage) View() string {
 		return c + style.Render(fmt.Sprintf("%s %s", check, label)) + "\n"
 	}
 
-	// === 1: FSR Вкл/Выкл ===
 	s += renderCheckbox(1, "Включить upscale (FSR 3.0)", m.Config.UseFSR)
 
-	// === 2: FSR Пресеты ===
 	if m.Config.UseFSR {
 		cFsr := "  "
 		if m.focusIndex == 2 {
@@ -261,7 +263,6 @@ func (m OptionsPage) View() string {
 
 		s += cFsr + styleFsr.Render("Уровень FSR:     ") + presetRow + "\n"
 
-		// 3 и 4: Инпуты для "Своё"
 		if m.Config.FSRLevel == 4 {
 			wView := m.inputs[0].View()
 			hView := m.inputs[1].View()
@@ -277,47 +278,20 @@ func (m OptionsPage) View() string {
 
 			s += "\n  " + wCursor + "Ширина: " + wView + "   " + hCursor + "Высота: " + hView + "\n"
 		}
-		// Убрали else с \n\n
 	}
-	// Убрали else с \n\n\n
 
 	s += "\n"
 	s += renderCheckbox(5, "Установить Steam Fix (достижения)", m.Config.UseSteamFix)
 	s += renderCheckbox(6, "Создать ярлыки на рабочем столе", m.Config.CreateShortcuts)
 
-	// --- ДИНАМИЧЕСКИЙ ОТСТУП СНИЗУ ---
-	// Если мы не показываем инпуты ширины/высоты, нам нужно компенсировать 2 строки перед кнопками
 	if !m.Config.UseFSR || m.Config.FSRLevel != 4 {
 		s += "\n\n"
 	}
 
-	s += "\n"
+	s += "\n" // Небольшой отступ перед кнопками в index.go
 
-	// Кнопки Назад / Далее
-	btnStyle := lipgloss.NewStyle().Padding(0, 3).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Foreground(lipgloss.Color("240"))
-	activeBtnStyle := btnStyle.Copy().BorderForeground(lipgloss.Color("62")).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("62"))
-
-	btnBack := btnStyle.Render("Назад")
-	if m.focusIndex == 7 {
-		btnBack = activeBtnStyle.Render("Назад")
-	}
-	btnNext := btnStyle.Render("Далее")
-	if m.focusIndex == 8 {
-		btnNext = activeBtnStyle.Render("Далее")
-	}
-
-	buttonsRow := lipgloss.JoinHorizontal(lipgloss.Center, btnBack, "        ", btnNext)
-
-	// ФИНАЛЬНАЯ СБОРКА БЕЗ СМЕЩЕНИЙ
-	textBox := lipgloss.NewStyle().
-		Width(46).
+	return lipgloss.NewStyle().
+		Width(boxWidth).
 		Align(lipgloss.Left).
 		Render(s)
-
-	buttonBox := lipgloss.NewStyle().
-		Width(46).
-		Align(lipgloss.Center).
-		Render(buttonsRow)
-
-	return textBox + "\n" + buttonBox
 }
