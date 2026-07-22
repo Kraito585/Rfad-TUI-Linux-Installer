@@ -10,6 +10,7 @@ type InstallConfig struct {
 	FSRLevel        int    // Страница 3
 	BaseWidth       int
 	BaseHeight      int
+	CustomFSRScale  string
 	ResWidth        string // Страница 3
 	ResHeight       string // Страница 3
 	UseSteamFix     bool   // Страница 3
@@ -31,14 +32,14 @@ type SystemChecks struct {
 // NewInstallConfig возвращает конфиг с дефолтными значениями
 func NewInstallConfig() *InstallConfig {
 	return &InstallConfig{
-		GraphicsMod:     "",
+		GraphicsMod:     "Без мода",
 		UseFSR:          false,
 		FSRLevel:        1,
 		BaseWidth:       1920,
 		BaseHeight:      1080,
-		ResWidth:        "1920",
-		ResHeight:       "1080",
+		CustomFSRScale:  "67",
 		UseSteamFix:     false,
 		CreateShortcuts: true,
+		ShaderPresetID:  "Medium",
 	}
 }

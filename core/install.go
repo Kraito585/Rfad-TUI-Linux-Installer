@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,10 @@ func DirSize(path string) (int64, error) {
 }
 
 func ExtractInstaller(installerPath, installPath string, graphicsMod string, progressCb func(float64, string)) error {
+	// Очищаем пути от одинарных/двойных кавычек и случайных пробелов по краям
+	installerPath = strings.Trim(installerPath, "\"' ")
+	installPath = strings.Trim(installPath, "\"' ")
+
 	LogUnpacking("ExtractInstaller: нативная распаковка innoextract, setup=%s, target=%s", installerPath, installPath)
 
 	cmd := exec.Command("innoextract", "-d", installPath, installerPath)

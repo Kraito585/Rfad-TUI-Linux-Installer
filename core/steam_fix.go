@@ -261,112 +261,80 @@ func ApplySteamFix(gamePath string, assets embed.FS) error {
 	return nil
 }
 
-// При первом запуске скрипт запускает MO2 через PortProton чтобы открыть диалговое
-// окно догрузки пакетов, в последующих запусках патчит prefix из PortProton в Steam
-// упрощает доработку префикса и уменьшает занимаемое место на диске 4+Gb
-func CreateLaunchScript(installPath string) (string, error) {
-	scriptPath := filepath.Join(installPath, "start_rfad.sh")
-	mo2Exe := filepath.Join(installPath, "MO2", "ModOrganizerSKSE.exe")
-
-	// Наш кастомный скрипт
-	scriptContent := fmt.Sprintf(`#!/usr/bin/env bash
-
-export STEAM_APP_ID="489830"
-export SteamAppId="489830"
-
-export START_FROM_STEAM=1
-export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.steam/steam"
-
-/usr/bin/portproton "%s"
-`, mo2Exe)
-
-	err := os.WriteFile(scriptPath, []byte(scriptContent), 0755)
-	if err == nil {
-		LogInfo("CreateLaunchScript: скрипт запуска успешно создан по пути %s", scriptPath)
-	}
-	return scriptPath, err
-}
-
-// подмена префикса и proton на лету перед запуском
+// теперь эта функция просто перезаписывает префикс в steam, эталоная версия префикса хранится в файлах игры
 func CreateSteamPrelaunchScript(installPath string) (string, error) {
-	scriptPath := filepath.Join(installPath, "steam_prelaunch.sh")
+	fixesDir := filepath.Join(installPath, "linux-fixes")
+	os.MkdirAll(fixesDir, 0755)
+
+	scriptPath := filepath.Join(fixesDir, "steam_prelaunch.sh")
 
 	scriptContent := fmt.Sprintf(`#!/usr/bin/env bash
 
 INSTALL_DIR="%s"
-MO2_EXE="$INSTALL_DIR/MO2/ModOrganizer.exe"
+FIXES_DIR="$INSTALL_DIR/linux-fixes"
+LOG_FILE="$FIXES_DIR/steam_prefix_patch.log"
 
-# Пути префиксов
-PP_PREFIX="$HOME/PortProton/data/prefixes/RFAD_SE"
-STEAM_COMPAT_DIR="$HOME/.steam/steam/steamapps/compatdata/489830"
-STEAM_PFX="$STEAM_COMPAT_DIR/pfx"
-MARKER_FILE="$INSTALL_DIR/.pp_initialized"
+# Наш эталонный префикс со всей структурой Steam (version, config_info, pfx)
+STABLE_COMPAT="$FIXES_DIR/SteamPrefix"
+TARGET_VERSION="GE-Proton11-1"
 
-# 1. ПРОВЕРКА ПЕРВОГО ЗАПУСКА (Инициализация через PortProton)
-if [ ! -f "$MARKER_FILE" ]; then
-    echo "Первый запуск: инициализация префикса через PortProton..."
+echo "=== [$(date)] ЗАПУСК ИГРЫ В STEAM ===" >> "$LOG_FILE"
+
+# 1. АВТОВОССТАНОВЛЕНИЕ И ПАТЧИНГ ПРЕФИКСА СЕЛИКОМ
+if [ -n "$STEAM_COMPAT_DATA_PATH" ]; then
     
-    # Запускаем MO2 через PortProton. 
-    # Он скачает Mono/Gecko и закроется, что нам и нужно!
-    /usr/bin/portproton "$MO2_EXE"
-    
-    # Ставим флаг, чтобы больше не вызывать PortProton
-    touch "$MARKER_FILE"
-    echo "Инициализация пакетов завершена."
-fi
-
-# 2. ПОДМЕНА ПРЕФИКСА НА ВРЕМЯ ИГРЫ
-mkdir -p "$STEAM_COMPAT_DIR"
-
-# Делаем бэкап оригинального префикса Steam (если он есть и это не наш симлинк)
-if [ -d "$STEAM_PFX" ] && [ ! -L "$STEAM_PFX" ]; then
-    mv "$STEAM_PFX" "${STEAM_PFX}_backup"
-fi
-
-# Прокидываем префикс PortProton в Steam
-if [ ! -L "$STEAM_PFX" ]; then
-    ln -s "$PP_PREFIX" "$STEAM_PFX"
-fi
-
-# 3. ПОДМЕНА PROTON НА GE-PROTON В АРГУМЕНТАХ STEAM
-GE_VERSION="GE-Proton11-1"
-CUSTOM_PROTON="$HOME/.steam/root/compatibilitytools.d/$GE_VERSION/proton"
-
-# Создаем новый пустой массив для команды запуска
-LAUNCH_ARGS=()
-
-for arg in "$@"; do
-    # Если аргумент заканчивается на "/proton" (это бинарник системного протона)
-    if [[ "$arg" == *"/proton" ]]; then
-        if [ -f "$CUSTOM_PROTON" ]; then
-            echo "Найден системный Proton, подменяем на: $GE_VERSION"
-            LAUNCH_ARGS+=("$CUSTOM_PROTON")
-        else
-            echo "GE-Proton не найден, используем системный: $arg"
-            LAUNCH_ARGS+=("$arg")
-        fi
-    else
-        # Остальные аргументы оставляем без изменений
-        LAUNCH_ARGS+=("$arg")
+    # Читаем версию из КОРНЯ префикса Steam
+    CURRENT_VERSION=""
+    if [ -f "$STEAM_COMPAT_DATA_PATH/version" ]; then
+        CURRENT_VERSION=$(cat "$STEAM_COMPAT_DATA_PATH/version" | grep -o "$TARGET_VERSION")
     fi
-done
 
-# 4. ЗАПУСК ИГРЫ
-echo "Итоговая команда запуска: ${LAUNCH_ARGS[@]}"
-"${LAUNCH_ARGS[@]}"
-
-# 5. ОТКАТ ПРЕФИКСА ПОСЛЕ ЗАКРЫТИЯ ИГРЫ
-rm -f "$STEAM_PFX"
-if [ -d "${STEAM_PFX}_backup" ]; then
-    mv "${STEAM_PFX}_backup" "$STEAM_PFX"
+    # Если Steam сбросил префикс или версия не совпадает
+    if [ "$CURRENT_VERSION" != "$TARGET_VERSION" ]; then
+        echo "Steam сбросил префикс или версия не совпадает. Восстанавливаем эталон целиком..." >> "$LOG_FILE"
+        
+        # 1. Очищаем папку, которую выделил Steam (оставляем саму папку, удаляем содержимое)
+        rm -rf "$STEAM_COMPAT_DATA_PATH"/*
+        rm -rf "$STEAM_COMPAT_DATA_PATH"/.* 2>/dev/null
+        
+        # 2. Копируем всё содержимое эталона (pfx, version, config_info)
+        cp -a "$STABLE_COMPAT"/. "$STEAM_COMPAT_DATA_PATH/"
+        
+        # 3. Перезаписываем файлы version нужной строкой (Proton пишет их в 2 местах)
+        echo "$TARGET_VERSION" > "$STEAM_COMPAT_DATA_PATH/version"
+        if [ -d "$STEAM_COMPAT_DATA_PATH/pfx" ]; then
+            echo "$TARGET_VERSION" > "$STEAM_COMPAT_DATA_PATH/pfx/version"
+        fi
+        
+        # 4. Патчим пути в config_info (снаружи и внутри pfx)
+        for CONF in "$STEAM_COMPAT_DATA_PATH/config_info" "$STEAM_COMPAT_DATA_PATH/pfx/config_info"; do
+            if [ -f "$CONF" ]; then
+                # Меняем версию Proton
+                sed -i "s|GE-Proton10-28|$TARGET_VERSION|g" "$CONF"
+                # Заменяем хардкод пользователя deck на текущего пользователя
+                sed -i "s|/home/deck/.local/share/Steam|$HOME/.local/share/Steam|g" "$CONF"
+                sed -i "s|/home/deck/.steam/root|$HOME/.steam/root|g" "$CONF"
+            fi
+        done
+        
+        echo "Эталонный префикс скопирован и пропатчен!" >> "$LOG_FILE"
+    else
+        echo "Префикс в норме ($TARGET_VERSION). Пропускаем восстановление." >> "$LOG_FILE"
+    fi
+else
+    echo "ВНИМАНИЕ: STEAM_COMPAT_DATA_PATH пуста. Steam запущен некорректно?" >> "$LOG_FILE"
 fi
+
+# 2. ЗАПУСК ИГРЫ
+echo "Аргументы: $@" >> "$LOG_FILE"
+echo "=== ЗАПУСК ===" >> "$LOG_FILE"
+echo "" >> "$LOG_FILE"
+
+exec "$@"
 
 `, installPath)
 
-	err := os.WriteFile(scriptPath, []byte(scriptContent), 0755) // Делаем исполняемым
-	if err == nil {
-		LogInfo("CreateSteamPrelaunchScript: скрипт-обертка создан по пути %s", scriptPath)
-	}
+	err := os.WriteFile(scriptPath, []byte(scriptContent), 0755)
 	return scriptPath, err
 }
 

@@ -14,54 +14,69 @@ import (
 type OptionsPage struct {
 	Config     *tui.InstallConfig
 	focusIndex int
-	inputs     []components.Input // 0: Ширина, 1: Высота
+	inputs     []components.Input // 0: Кастомный масштаб (%)
 }
 
 func NewOptionsPage(cfg *tui.InstallConfig) OptionsPage {
-	widthInput := components.NewInput("Ширина", 8)
-	widthInput.Model.SetValue(cfg.ResWidth)
+	// Заменяем два инпута на один — для процентов FSR
+	scaleInput := components.NewInput("Масштаб (%)", 4)
 
-	heightInput := components.NewInput("Высота", 8)
-	heightInput.Model.SetValue(cfg.ResHeight)
+	// Если ResWidth пустой или там старое разрешение (типа 1920), ставим дефолтные 67%
+	if cfg.ResWidth == "" || len(cfg.ResWidth) > 3 {
+		scaleInput.Model.SetValue(cfg.CustomFSRScale)
+	} else {
+		scaleInput.Model.SetValue(cfg.ResWidth)
+	}
 
 	if cfg.GraphicsMod == "" {
 		cfg.GraphicsMod = "Без мода"
 	}
 
+	// Дефолтный пресет для CS
+	if cfg.ShaderPresetID == "" {
+		cfg.ShaderPresetID = "Medium"
+	}
+
 	return OptionsPage{
 		Config:     cfg,
 		focusIndex: 0,
-		inputs:     []components.Input{widthInput, heightInput},
+		inputs:     []components.Input{scaleInput},
 	}
 }
 
 func (m OptionsPage) Init() tea.Cmd { return nil }
 
-// ДОБАВЛЕН МЕТОД ДЛЯ INDEX.GO
 func (m OptionsPage) IsAtBottom() bool {
-	return m.focusIndex == 6 // 6 - это индекс последнего чекбокса "Создать ярлыки"
+	return m.focusIndex == 6 // 6 - индекс последнего чекбокса
 }
 
+// Умный поиск следующего активного элемента
 func (m OptionsPage) getNextIndex(dir int) int {
-	next := m.focusIndex + dir
+	next := m.focusIndex
 
 	for {
-		// Жестко ограничиваем индексы (без зацикливания), чтобы работал FocusGate
+		next += dir
+
+		// Границы экрана
 		if next < 0 {
 			return 0
 		} else if next > 6 {
 			return 6
 		}
 
-		if !m.Config.UseFSR && (next == 2 || next == 3 || next == 4) {
-			next += dir
+		// Пропускаем строку пресетов CS, если выбран другой мод
+		if next == 1 && m.Config.GraphicsMod != "Community Shaders" {
+			continue
+		}
+		// Пропускаем настройки FSR, если он выключен
+		if next == 3 && !m.Config.UseFSR {
+			continue
+		}
+		// Пропускаем кастомный инпут FSR, если не выбран режим "Своё"
+		if next == 4 && (!m.Config.UseFSR || m.Config.FSRLevel != 4) {
 			continue
 		}
 
-		if m.Config.UseFSR && m.Config.FSRLevel != 4 && (next == 3 || next == 4) {
-			next += dir
-			continue
-		}
 		return next
 	}
 }
@@ -76,10 +91,9 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 		case "down":
 			m.focusIndex = m.getNextIndex(1)
 
-		// Удалили tab / shift+tab, они теперь живут только в index.go
-
 		case "left":
-			if m.focusIndex == 0 {
+			switch m.focusIndex {
+			case 0:
 				switch m.Config.GraphicsMod {
 				case "Без мода":
 					m.Config.GraphicsMod = "Community Shaders"
@@ -90,7 +104,20 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				case "Community Shaders":
 					m.Config.GraphicsMod = "ReShade"
 				}
-			} else if m.focusIndex == 2 {
+			case 1: // Пресеты CS
+				presets := []string{"Low", "Medium", "High", "Ultra"}
+				curr := 0
+				for i, p := range presets {
+					if p == m.Config.ShaderPresetID {
+						curr = i
+					}
+				}
+				curr--
+				if curr < 0 {
+					curr = len(presets) - 1
+				}
+				m.Config.ShaderPresetID = presets[curr]
+			case 3: // Уровни FSR
 				switch m.Config.FSRLevel {
 				case 3:
 					m.Config.FSRLevel = 4
@@ -103,7 +130,8 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				}
 			}
 		case "right":
-			if m.focusIndex == 0 {
+			switch m.focusIndex {
+			case 0:
 				switch m.Config.GraphicsMod {
 				case "Без мода":
 					m.Config.GraphicsMod = "ENB"
@@ -114,7 +142,20 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				case "Community Shaders":
 					m.Config.GraphicsMod = "Без мода"
 				}
-			} else if m.focusIndex == 2 {
+			case 1: // Пресеты CS
+				presets := []string{"Low", "Medium", "High", "Ultra"}
+				curr := 0
+				for i, p := range presets {
+					if p == m.Config.ShaderPresetID {
+						curr = i
+					}
+				}
+				curr++
+				if curr >= len(presets) {
+					curr = 0
+				}
+				m.Config.ShaderPresetID = presets[curr]
+			case 3: // Уровни FSR
 				switch m.Config.FSRLevel {
 				case 3:
 					m.Config.FSRLevel = 2
@@ -130,6 +171,7 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 		case "enter", " ":
 			switch m.focusIndex {
 			case 0:
+				// Переключение мода по Enter (аналогично стрелке вправо)
 				switch m.Config.GraphicsMod {
 				case "Без мода":
 					m.Config.GraphicsMod = "ENB"
@@ -140,19 +182,8 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 				case "Community Shaders":
 					m.Config.GraphicsMod = "Без мода"
 				}
-			case 1:
+			case 2: // Вкл/Выкл FSR
 				m.Config.UseFSR = !m.Config.UseFSR
-			case 2:
-				switch m.Config.FSRLevel {
-				case 3:
-					m.Config.FSRLevel = 2
-				case 2:
-					m.Config.FSRLevel = 1
-				case 1:
-					m.Config.FSRLevel = 4
-				case 4:
-					m.Config.FSRLevel = 3
-				}
 			case 5:
 				m.Config.UseSteamFix = !m.Config.UseSteamFix
 			case 6:
@@ -161,20 +192,14 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 		}
 	}
 
-	// Обработка инпутов (разрешения)
-	if m.focusIndex == 3 {
+	// Обработка ввода для кастомного скейла FSR (%)
+	if m.focusIndex == 4 {
 		m.inputs[0].Focus()
-		m.inputs[1].Blur()
 		m.inputs[0].Model, cmd = m.inputs[0].Model.Update(msg)
-		m.Config.ResWidth = m.inputs[0].Value() // Сохраняем на лету
-	} else if m.focusIndex == 4 {
-		m.inputs[0].Blur()
-		m.inputs[1].Focus()
-		m.inputs[1].Model, cmd = m.inputs[1].Model.Update(msg)
-		m.Config.ResHeight = m.inputs[1].Value() // Сохраняем на лету
+		m.Config.CustomFSRScale = m.inputs[0].Value()
+		m.Config.ResWidth = m.inputs[0].Value()
 	} else {
 		m.inputs[0].Blur()
-		m.inputs[1].Blur()
 	}
 
 	return m, cmd
@@ -182,15 +207,15 @@ func (m OptionsPage) Update(msg tea.Msg) (OptionsPage, tea.Cmd) {
 
 func (m OptionsPage) View() string {
 	var s string
-	boxWidth := 56
+	// Увеличили ширину, чтобы влезало длинное название "Community Shaders"
+	boxWidth := 65
 
 	title := lipgloss.NewStyle().Width(boxWidth).Align(lipgloss.Center).Render("Настройка дополнительных параметров:")
 	s += title + "\n\n"
 
-	if !m.Config.UseFSR {
-		s += "\n"
-	}
-
+	// ================================
+	// 1. Графический мод
+	// ================================
 	cMod := "  "
 	if m.focusIndex == 0 {
 		cMod = "> "
@@ -215,8 +240,43 @@ func (m OptionsPage) View() string {
 		styleMod = styleMod.Foreground(lipgloss.Color("62")).Bold(true)
 	}
 
-	s += cMod + styleMod.Render("Графический мод: ") + modRow + "\n\n"
+	s += cMod + styleMod.Render("Графика:    ") + modRow + "\n"
 
+	// ================================
+	// 2. Пресеты Community Shaders
+	// ================================
+	if m.Config.GraphicsMod == "Community Shaders" {
+		cPreset := "  "
+		if m.focusIndex == 1 {
+			cPreset = "> "
+		}
+
+		presets := []string{"Low", "Medium", "High", "Ultra"}
+		var renderedPresets []string
+
+		for _, p := range presets {
+			style := lipgloss.NewStyle().Padding(0, 1)
+			if m.Config.ShaderPresetID == p {
+				style = style.Background(lipgloss.Color("62")).Foreground(lipgloss.Color("255"))
+			} else {
+				style = style.Foreground(lipgloss.Color("240"))
+			}
+			renderedPresets = append(renderedPresets, style.Render(p))
+		}
+
+		presetRow := strings.Join(renderedPresets, " ")
+		stylePreset := lipgloss.NewStyle()
+		if m.focusIndex == 1 {
+			stylePreset = stylePreset.Foreground(lipgloss.Color("62")).Bold(true)
+		}
+
+		s += "\n" + cPreset + stylePreset.Render("Пресет CS:  ") + presetRow + "\n"
+	} else {
+		s += "\n" // Пустая строка для сохранения баланса интерфейса
+	}
+	s += "\n"
+
+	// Хелпер для чекбоксов
 	renderCheckbox := func(idx int, label string, isChecked bool) string {
 		c := "  "
 		if m.focusIndex == idx {
@@ -233,11 +293,14 @@ func (m OptionsPage) View() string {
 		return c + style.Render(fmt.Sprintf("%s %s", check, label)) + "\n"
 	}
 
-	s += renderCheckbox(1, "Включить upscale (FSR 3.0)", m.Config.UseFSR)
+	// ================================
+	// 3. Настройки FSR
+	// ================================
+	s += renderCheckbox(2, "Включить upscale (FSR 3.0)", m.Config.UseFSR)
 
 	if m.Config.UseFSR {
 		cFsr := "  "
-		if m.focusIndex == 2 {
+		if m.focusIndex == 3 {
 			cFsr = "> "
 		}
 
@@ -255,40 +318,35 @@ func (m OptionsPage) View() string {
 			renderedItems = append(renderedItems, style.Render(items[i]))
 		}
 
-		presetRow := strings.Join(renderedItems, " ")
+		fsrRow := strings.Join(renderedItems, " ")
 		styleFsr := lipgloss.NewStyle()
-		if m.focusIndex == 2 {
+		if m.focusIndex == 3 {
 			styleFsr = styleFsr.Foreground(lipgloss.Color("62")).Bold(true)
 		}
 
-		s += cFsr + styleFsr.Render("Уровень FSR:     ") + presetRow + "\n"
+		s += cFsr + styleFsr.Render("Масштаб:    ") + fsrRow + "\n"
 
+		// Инпут для кастомного процента
 		if m.Config.FSRLevel == 4 {
-			wView := m.inputs[0].View()
-			hView := m.inputs[1].View()
-
-			wCursor := "  "
-			if m.focusIndex == 3 {
-				wCursor = "> "
-			}
-			hCursor := "  "
+			scaleView := m.inputs[0].View()
+			scaleCursor := "  "
 			if m.focusIndex == 4 {
-				hCursor = "> "
+				scaleCursor = "> "
 			}
 
-			s += "\n  " + wCursor + "Ширина: " + wView + "   " + hCursor + "Высота: " + hView + "\n"
+			s += "\n  " + scaleCursor + "Кастомный масштаб: " + scaleView + " %\n"
+		} else {
+			s += "\n\n"
 		}
+	} else {
+		s += "\n\n\n"
 	}
 
-	s += "\n"
+	// ================================
+	// 4. Глобальные опции
+	// ================================
 	s += renderCheckbox(5, "Установить Steam Fix (достижения)", m.Config.UseSteamFix)
 	s += renderCheckbox(6, "Создать ярлыки на рабочем столе", m.Config.CreateShortcuts)
-
-	if !m.Config.UseFSR || m.Config.FSRLevel != 4 {
-		s += "\n\n"
-	}
-
-	s += "\n" // Небольшой отступ перед кнопками в index.go
 
 	return lipgloss.NewStyle().
 		Width(boxWidth).

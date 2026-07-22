@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -19,10 +20,21 @@ import (
 	"rfad-installer/tui/pages"
 )
 
-func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth, screenHeight int) {
+// IsSteamDeckLCD проверяет, является ли устройство Steam Deck с LCD экраном (Jupiter)
+func IsSteamDeckLCD() bool {
+	const path = "/sys/class/dmi/id/product_name"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	productName := string(bytes.TrimSpace(data))
+	return productName == "Jupiter"
+}
+
+// RunSystemChecks выполняет диагностику системы
+func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck bool, screenWidth, screenHeight int, portProtonVersion string) {
 	core.LogInfo("=== Выполнение предполетных проверок ===")
 
-	// 1. Запущен ли от root
 	isSudo = os.Geteuid() == 0
 	if isSudo {
 		core.LogError("КРИТИЧЕСКАЯ ОШИБКА: Запуск от root запрещен!")
@@ -30,39 +42,47 @@ func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth
 		core.LogInfo("Запуск от обычного пользователя")
 	}
 
-	// 2. Проверка Proton
+	isSteamDeck = IsSteamDeckLCD()
+	if isSteamDeck {
+		core.LogInfo("Обнаружено устройство: Steam Deck LCD (Jupiter)")
+	}
 	hasWine = checkBinary("proton")
+	portProtonVersion = "Не найден"
 
-	// Проверка PortProton (PATH, локальный путь, Flatpak)
 	if !hasWine {
 		if _, err := exec.LookPath("portproton"); err == nil {
 			hasWine = true
+			portProtonVersion = "System PATH"
 			core.LogInfo("PortProton найден в системном PATH")
 		} else {
 			home, _ := os.UserHomeDir()
 			localPP := filepath.Join(home, ".local", "bin", "portproton")
 			if _, err := os.Stat(localPP); err == nil {
 				hasWine = true
+				portProtonVersion = "Local (~/.local/bin)"
 				core.LogInfo("PortProton найден по локальному пути: %s", localPP)
 			} else {
 				if _, err := exec.LookPath("flatpak"); err == nil {
 					cmd := exec.Command("flatpak", "info", "ru.linux_gaming.PortProton")
 					if err := cmd.Run(); err == nil {
 						hasWine = true
+						portProtonVersion = "Flatpak (ru.linux_gaming.PortProton)"
 						core.LogInfo("PortProton найден в реестре Flatpak")
 					}
 				}
 			}
 		}
+	} else {
+		portProtonVersion = "Proton (System)"
 	}
 
 	if hasWine {
-		core.LogInfo("PortProton обнаружен в системе")
+		core.LogInfo("Порт/Протон обнаружен в системе: %s", portProtonVersion)
 	} else {
-		core.LogError("КРИТИЧЕСКАЯ ОШИБКА: PortProton не найден в системе")
+		core.LogError("КРИТИЧЕСКАЯ ОШИБКА: PortProton/Proton не найден в системе")
 	}
 
-	// 3. Проверка gamemoderun
+	// 4. Проверка gamemoderun
 	hasGameMode = checkBinary("gamemoderun") || checkBinary("gamemoded")
 	if hasGameMode {
 		core.LogInfo("gamemoderun найден в системе")
@@ -70,7 +90,7 @@ func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth
 		core.LogWarn("gamemoderun не найден, производительность может быть ниже ожидаемой")
 	}
 
-	// 4. Проверка NVAPI
+	// 5. Проверка NVAPI
 	hasNVAPI = false
 	if _, err := os.Stat("/proc/driver/nvidia"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -93,10 +113,11 @@ func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth
 		core.LogInfo("NVAPI не требуется или видеокарта не NVIDIA")
 	}
 
-	screenWidth, screenHeight = 1920, 1080 // Значения по умолчанию
+	screenWidth, screenHeight = 1920, 1080
 	out, err := exec.Command("sh", "-c", "xrandr | grep '\\*' | awk '{print $1}'").Output()
 	if err == nil {
-		parts := strings.Split(strings.TrimSpace(string(out)), "x")
+		rawOut := strings.TrimSpace(string(out))
+		parts := strings.Split(rawOut, "x")
 		if len(parts) == 2 {
 			if w, err := strconv.Atoi(parts[0]); err == nil {
 				screenWidth = w
@@ -106,7 +127,13 @@ func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth
 			}
 		}
 	}
-	core.LogInfo("Базовое разрешение экрана определено как: %dx%d", screenWidth, screenHeight)
+
+	if isSteamDeck && screenWidth < screenHeight {
+		core.LogInfo("Коррекция разрешения для вертикальной матрицы Steam Deck LCD...")
+		screenWidth, screenHeight = screenHeight, screenWidth
+	}
+
+	core.LogInfo("Итоговое разрешение экрана: %dx%d", screenWidth, screenHeight)
 
 	return
 }
@@ -203,6 +230,14 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
+func FlatpakPP(portProtonVersion string) bool {
+	if portProtonVersion == "Flatpak (ru.linux_gaming.PortProton)" {
+		return true
+	}
+	return false
+
+}
+
 func main() {
 	var err error
 	ensureTerminal()
@@ -229,8 +264,8 @@ func main() {
 	core.LogInfo("Запуск фонового кэширования пресетов Community Shaders...")
 	core.FetchAndCachePresets(cacheDir)
 
-	isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight := RunSystemChecks()
-	core.LogInfo("Системные проверки пройдены: Sudo=%v, Wine=%v, GameMode=%v, NVAPI=%v, Screan=%v x %v", isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight)
+	isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck, screenWidth, screenHeight, portProtonVersion := RunSystemChecks()
+	core.LogInfo("Системные проверки пройдены: Sudo=%v, Wine=%v, GameMode=%v, NVAPI=%v, Screan=%v x %v, Steamdeck=%v, PPV=%v", isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight, isSteamDeck, portProtonVersion)
 
 	startChan := make(chan *tui.InstallConfig)
 
@@ -258,6 +293,9 @@ func main() {
 		// === ЭТАП 1: РАСПАКОВКА ИГРЫ ЧЕРЕЗ INNOEXTRACT ===
 		core.LogInfo("=== ЭТАП 1: Нативная распаковка базовой игры ===")
 
+		cfg.InstallerPath = strings.Trim(cfg.InstallerPath, "\"' ")
+		cfg.InstallPath = strings.Trim(cfg.InstallPath, "\"' ")
+
 		os.MkdirAll(cfg.InstallPath, 0755)
 
 		var isSuccess bool
@@ -272,8 +310,6 @@ func main() {
 				os.RemoveAll(gamePath)
 			}
 		}()
-
-		time.Sleep(500 * time.Millisecond)
 
 		err = core.ExtractInstaller(
 			cfg.InstallerPath,
@@ -389,6 +425,20 @@ func main() {
 			return
 		}
 
+		if cfg.UseSteamFix {
+			err = core.ExtractSteamPrefix(prefixArchivePath, cfg.InstallPath, func(fileName string) {
+				p.Send(pages.ProgressMsg{
+					Percent: -1,
+					Message: fmt.Sprintf("Настройка Steam префикса: %s", fileName),
+				})
+			})
+			if err != nil {
+				core.LogError("Ошибка распаковки Steam префикса: %v", err)
+				p.Send(pages.ErrorMsg{Err: err})
+				return
+			}
+		}
+
 		// === ЭТАП 4: ПРИМЕНЕНИЕ ФИКСОВ КОНФИГУРАЦИИ ===
 		core.LogInfo("=== ЭТАП 4: Патчинг конфигурации ===")
 		err = core.ApplyPatches(cfg, func(percent float64, fileName string) {
@@ -435,7 +485,7 @@ func main() {
 
 		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode, cfg.UseSteamFix)
 
-		// === ЭТАП 6: Steam Fix и интеграция со Steam ===
+		// === ЭТАП 6: Steam Fix и интегр[GENERAL]
 		if cfg.UseSteamFix {
 			core.LogInfo("=== ЭТАП 6: Настройка ярлыка Steam ===")
 
@@ -512,7 +562,7 @@ func main() {
 		// === Этап 7: Создание шорткатов ===
 		core.LogInfo("=== ЭТАП 7: Создание ярлыков ===")
 		if cfg.CreateShortcuts {
-			err = core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix, bundledAssets)
+			err = core.CreateDesktopShortcuts(cfg.InstallPath, cfg.UseSteamFix, FlatpakPP(portProtonVersion), bundledAssets)
 			if err != nil {
 				core.LogError("Ошибка создания ярлыков: %v", err)
 				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания ярлыков: %v", err)})

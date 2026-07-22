@@ -112,6 +112,7 @@ func NewIndex(startChan chan *tui.InstallConfig, ascii string, isSudo, hasWine, 
 		Page4:          NewSummaryPage(cfg),
 		PageSteamClose: NewSteamClosePage(),
 		Status:         components.NewStatusBar(),
+		NavFocus:       2,
 	}
 }
 
@@ -238,6 +239,10 @@ func (m Index) GetBackButtonText() string {
 func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	if m.NavFocus == 0 && (m.ActivePage == PageSystemChecks || m.ActivePage == PageSummary || m.ActivePage == PageAskingSteamClose) {
+		m.NavFocus = 2 // Сразу прыгаем на кнопку "Далее"
+	}
+
 	// 1. Глобальный перехват клавиш (FocusGate)
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		switch keyMsg.String() {
@@ -298,7 +303,12 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case ChangePageMsg:
 		m.ActivePage = msg.Page
-		m.NavFocus = 0 // Сбрасываем фокус в контент при смене страницы
+		// Если на странице нет ввода - кидаем фокус сразу на кнопку "Далее"
+		if msg.Page == PageSystemChecks || msg.Page == PageSummary || msg.Page == PageAskingSteamClose {
+			m.NavFocus = 2
+		} else {
+			m.NavFocus = 0 // Для остальных страниц сбрасываем в контент
+		}
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.WindowWidth = msg.Width
@@ -307,6 +317,7 @@ func (m Index) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case StartInstallMsg:
 		m.ActivePage = PageInstalling
+		m.NavFocus = 0
 		go func() { m.startChan <- m.Config }()
 		return m, nil
 	case PromptSteamCloseMsg:
@@ -420,12 +431,13 @@ func (m Index) View() string {
 		}
 	}
 
-	// Подстраиваем высоту: даем больше места шейдерам, если нужно
-	bodyHeight := 16
+	var bodyBlock string
 	if m.ActivePage == PageShaders {
-		bodyHeight = 35 // Можно сделать меньше, так как ASCII отключен
+		bodyBlock = lipgloss.NewStyle().Align(lipgloss.Left).Render(rawBody)
+	} else {
+		bodyHeight := 16
+		bodyBlock = lipgloss.PlaceVertical(bodyHeight, lipgloss.Center, lipgloss.NewStyle().Align(lipgloss.Left).Render(rawBody))
 	}
-	bodyBlock := lipgloss.PlaceVertical(bodyHeight, lipgloss.Center, lipgloss.NewStyle().Align(lipgloss.Left).Render(rawBody))
 	body := lipgloss.PlaceHorizontal(boxWidth, lipgloss.Center, bodyBlock)
 
 	// ==========================================
@@ -454,7 +466,14 @@ func (m Index) View() string {
 		}
 
 		navRow := lipgloss.JoinHorizontal(lipgloss.Center, btnBack, "        ", btnNext)
-		globalNavigation = lipgloss.NewStyle().Width(boxWidth).Align(lipgloss.Center).MarginTop(1).Render(navRow)
+
+		// Делаем стиль динамическим
+		navStyle := lipgloss.NewStyle().Width(boxWidth).Align(lipgloss.Center)
+		if m.ActivePage != PageShaders {
+			navStyle = navStyle.MarginTop(1)
+		}
+
+		globalNavigation = navStyle.Render(navRow)
 	}
 
 	// ==========================================
@@ -475,18 +494,17 @@ func (m Index) View() string {
 	var divider, disclaimer string
 
 	if m.ActivePage == PageShaders {
-		// На странице шейдеров убираем разделитель и дисклеймер, экономя место для картинки
 		mainUI = lipgloss.JoinVertical(lipgloss.Left, header, body, globalNavigation, footer)
 	} else {
-		// На остальных страницах всё по-старому
-		divider := lipgloss.NewStyle().
+		// ВАЖНО: используем "=", а не ":="
+		divider = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("237")).
 			MarginTop(1).
 			MarginBottom(1).
 			Render(strings.Repeat("─", boxWidth))
 
 		disclaimerText := "Не является Официальным продуктом: Requiem For A Dream by Immersive Chicken\nВсе фиксы были найдены официальным Discord сообществом RFAD"
-		disclaimer := lipgloss.NewStyle().
+		disclaimer = lipgloss.NewStyle().
 			Width(boxWidth).
 			Align(lipgloss.Center).
 			Foreground(lipgloss.Color("239")).
@@ -500,29 +518,60 @@ func (m Index) View() string {
 	// ==========================================
 	mainUI = lipgloss.JoinVertical(lipgloss.Left, header, body, globalNavigation, footer, divider, disclaimer)
 
+	padY := 1
+	if m.ActivePage == PageShaders {
+		padY = 0
+	}
+
 	dialogBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62")).
-		Padding(1, 2).
+		Padding(padY, 2). // padY сверху и снизу, 2 по бокам
 		Render(mainUI)
 
+	// Добавление логов сбоку
 	finalUI := dialogBox
-	logBoxWidth := 45 // Фиксированная ширина боковой панели
+
+	// Делаем панель логов шире (например, 65 вместо 45)
+	logBoxWidth := 65
+
+	// Жестко фиксируем высоту контента в 38 строк (+2 строки на рамку = 40 строк)
+	logBoxHeight := 38
 
 	// Добавление логов сбоку
 	if m.ShowLogs {
-		dialogHeight := lipgloss.Height(dialogBox)
+		// 1. Разбиваем единую строку логов на массив строк
+		lines := strings.Split(m.LogLines, "\n")
+		var safeLines []string
+
+		// 2. Вычисляем доступную ширину для текста:
+		// Общая ширина (65) - Рамки слева/справа (2) - Паддинги слева/справа (2) = 61
+		maxLen := logBoxWidth - 4
+
+		// 3. Жестко обрезаем всё, что не влезает
+		for _, line := range lines {
+			runes := []rune(line)
+			if len(runes) > maxLen {
+				safeLines = append(safeLines, string(runes[:maxLen-3])+"...")
+			} else {
+				safeLines = append(safeLines, line)
+			}
+		}
+
+		// Собираем обратно
+		safeLogs := strings.Join(safeLines, "\n")
 
 		logStyle := lipgloss.NewStyle().
 			Width(logBoxWidth).
-			Height(dialogHeight-2).
+			Height(logBoxHeight). // Наши жесткие 38 строк контента
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("240")).
 			Padding(0, 1).
 			MarginLeft(2).
 			Foreground(lipgloss.Color("248"))
 
-		logBox := logStyle.Render(m.LogLines)
+		logBox := logStyle.Render(safeLogs)
+
 		finalUI = lipgloss.JoinHorizontal(lipgloss.Top, dialogBox, logBox)
 	}
 
@@ -559,8 +608,8 @@ func (m Index) View() string {
 				startX = 0
 			}
 
-			imgOffsetY := 19
-			if m.showAscii() && m.AsciiArt != "" {
+			imgOffsetY := 13
+			if m.showAscii() && m.AsciiArt != "" && m.ActivePage != PageShaders {
 				imgOffsetY += lipgloss.Height(header) - 2
 			}
 

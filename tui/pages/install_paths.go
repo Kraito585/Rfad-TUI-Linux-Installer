@@ -85,12 +85,10 @@ func (m InstallPathsPage) View() string {
 
 	// === БЛОК ПОДСКАЗОК ===
 	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
-	dangerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	textStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
 
 	hint := warnStyle.Render("ВНИМАНИЕ:") + textStyle.Render(" Путь должен указывать строго на файл\n инсталлятора ") +
-		warnStyle.Render("(RfaD SE 6.2.exe)") + textStyle.Render(".\n ") +
-		dangerStyle.Render("Кавычки (\"\") в пути не допускаются!")
+		warnStyle.Render("(RfaD SE 6.2.exe)")
 
 	hintBox := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).

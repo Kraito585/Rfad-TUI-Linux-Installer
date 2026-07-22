@@ -23,8 +23,8 @@ func GetDesktopDir() string {
 	return filepath.Join(home, "Desktop")
 }
 
-func CreateDesktopShortcuts(gamePath string, useSteamFix bool, assets embed.FS) error {
-	LogInfo("CreateDesktopShortcuts: создание ярлыков, gamePath=%s, steamFix=%v", gamePath, useSteamFix)
+func CreateDesktopShortcuts(gamePath string, useSteamFix bool, isFlatpakPP bool, assets embed.FS) error {
+	LogInfo("CreateDesktopShortcuts: создание ярлыков, gamePath=%s, steamFix=%v, isFlatpak=%v", gamePath, useSteamFix, isFlatpakPP)
 	desktopDir := GetDesktopDir()
 	home, _ := os.UserHomeDir()
 	menuDir := filepath.Join(home, ".local", "share", "applications")
@@ -54,18 +54,14 @@ func CreateDesktopShortcuts(gamePath string, useSteamFix bool, assets embed.FS) 
 		filename string
 	}
 
-	// Базовый ярлык MO2 (нужен всегда, работает через PortProton)
+	// Базовый ярлык MO2
 	mo2Exec := filepath.Join(gamePath, "MO2", "ModOrganizer.exe")
 
 	if useSteamFix {
-		// ЛИЦЕНЗИЯ
-		LogInfo("Лицензионная версия: ярлык запуска игры не создается, так как запуск должен идти строго через Steam.")
-
-		// Оставляем только ярлык для чистого MO2 (для настройки модов)
+		LogInfo("Лицензионная версия: ярлык запуска игры не создается, запуск через Steam.")
 		shortcuts = append(shortcuts, struct {
 			name, exec, args, icon, filename string
 		}{"RFAD-MO2", mo2Exec, "", iconMO2, "rfad-mo2.desktop"})
-
 	} else {
 		gameExec := filepath.Join(gamePath, "MO2", "ModOrganizerSKSE.exe")
 
@@ -77,7 +73,20 @@ func CreateDesktopShortcuts(gamePath string, useSteamFix bool, assets embed.FS) 
 			name, exec, args, icon, filename string
 		}{"RFAD-MO2", mo2Exec, "", iconMO2, "rfad-mo2.desktop"})
 	}
+
+	// --- ОПРЕДЕЛЕНИЕ ПРЕФИКСА НА ОСНОВЕ ПЕРЕДАННЫХ ДАННЫХ ---
 	execPrefix := "/usr/bin/portproton"
+
+	// Проверяем локальный путь, если не Flatpak
+	if !isFlatpakPP {
+		localPP := filepath.Join(home, ".local", "bin", "portproton")
+		if _, err := os.Stat(localPP); err == nil {
+			execPrefix = localPP
+		}
+	} else {
+		execPrefix = "flatpak run ru.linux_gaming.PortProton"
+		LogInfo("Используется Flatpak-версия PortProton для ярлыков.")
+	}
 
 	for _, s := range shortcuts {
 		argsStr := ""

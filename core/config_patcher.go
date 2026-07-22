@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"rfad-installer/tui"
+	"strconv"
 	"strings"
 )
 
@@ -14,6 +15,38 @@ type ConfigPatch struct {
 	Replace       map[string]string
 	ReplacePrefix map[string]string
 	InsertAfter   map[string]string
+}
+
+func getQualityMode(cfg *tui.InstallConfig) int {
+	if cfg.FSRLevel == 4 {
+		scale, err := strconv.ParseFloat(cfg.CustomFSRScale, 64)
+		if err != nil || scale <= 0 {
+			return 1 // По умолчанию Quality (67%)
+		}
+
+		if scale >= 95.0 {
+			return 0 // Native
+		}
+
+		if scale >= 63.0 {
+			return 1 // Quality
+		}
+
+		if scale >= 55.0 {
+			return 2 // Balanced
+		}
+
+		if scale >= 45.0 {
+			return 3 // Performance
+		}
+
+		return 4
+	}
+
+	if !cfg.UseFSR {
+		return 0
+	}
+	return cfg.FSRLevel
 }
 
 // Правки конфигов ничего интересного
@@ -51,25 +84,28 @@ func generatePatchList(cfg *tui.InstallConfig) []ConfigPatch {
 		},
 	}
 
-	if cfg.UseFSR {
+	if cfg.UseFSR && cfg.GraphicsMod != "Community Shaders" {
 		var finalW, finalH string
 
-		// Высчитываем итоговое разрешение рендера на основе выбранного уровня FSR
 		switch cfg.FSRLevel {
-		case 1: // 75% от базового разрешения
+		case 1:
 			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*0.75))
 			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*0.75))
-		case 2: // 50% от базового разрешения
+		case 2:
 			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*0.50))
 			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*0.50))
-		case 3: // 25% от базового разрешения (максимальная производительность)
+		case 3:
 			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*0.25))
 			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*0.25))
-		case 4: // Своё значение (ручной ввод пользователя)
-			finalW = cfg.ResWidth
-			finalH = cfg.ResHeight
+		case 4:
+			scale, err := strconv.ParseFloat(cfg.CustomFSRScale, 64)
+			if err != nil || scale <= 0 {
+				scale = 67.0
+			}
+			multiplier := scale / 100.0
+			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*multiplier))
+			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*multiplier))
 		default:
-			// Фолбэк на случай непредвиденных ошибок (ставим 75%)
 			finalW = fmt.Sprintf("%d", int(float64(cfg.BaseWidth)*0.75))
 			finalH = fmt.Sprintf("%d", int(float64(cfg.BaseHeight)*0.75))
 		}
@@ -97,8 +133,43 @@ func generatePatchList(cfg *tui.InstallConfig) []ConfigPatch {
 		})
 	}
 
+	// Влкючение Community Shaders и лечение его зависимостей
+	if cfg.GraphicsMod == "Community Shaders" {
+		patches = append(patches, ConfigPatch{
+			TargetFile: "MO2/profiles/RFAD_SE/modlist.txt",
+			Replace: map[string]string{
+				"+Enhanced Volumetric Lighting and Shadows (EVLaS)": "-Enhanced Volumetric Lighting and Shadows (EVLaS)",
+			},
+			InsertAfter: map[string]string{
+				"-MY MODS_separator": "\n+Community Shaders 86492 1.7.3 2026-06-27T10-38Z 6Xybdafll\n+Upscaling 156952 1.4.0 2026-05-31T10-27Z L5WQbqiov\n-KRAITO PATCH",
+			},
+		})
+	}
+
+	if cfg.UseFSR && cfg.GraphicsMod == "Community Shaders" {
+		fsrLevel := fmt.Sprintf("%v", getQualityMode(cfg))
+		patches = append(patches, ConfigPatch{
+			TargetFile: "MO2/overwrite/SKSE/Plugins/CommunityShaders/SettingsUser.json",
+			Replace: map[string]string{
+				"Fullscreen = false": "Fullscreen = true",
+				"Borderless = true":  "Borderless = false",
+			},
+		})
+	}
+
+	// Патч для ReShade отключение UI
+	if cfg.GraphicsMod == "ReShade" {
+		patches = append(patches, ConfigPatch{
+			TargetFile: "ReShade.ini",
+			InsertAfter: map[string]string{
+				"[GENERAL]": "KeyOverlay=0,0,0,0\nShowOverlay=0\nNoReloadOnInit=1",
+			},
+		})
+	}
+
 	return patches
 }
+
 func applySinglePatch(filePath string, patch ConfigPatch) error {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -137,7 +208,11 @@ func applySinglePatch(filePath string, patch ConfigPatch) error {
 
 		if patch.InsertAfter != nil {
 			if insertStr, ok := patch.InsertAfter[trimmedLine]; ok {
-				newLines = append(newLines, insertStr)
+				for _, subLine := range strings.Split(insertStr, "\n") {
+					if subLine != "" {
+						newLines = append(newLines, subLine)
+					}
+				}
 			}
 		}
 	}

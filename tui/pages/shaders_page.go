@@ -410,7 +410,7 @@ func (m ShadersPage) View() string {
 
 	sixelBox := lipgloss.NewStyle().Width(imgBoxWidth).Height(imgBoxHeight).Align(lipgloss.Center).Render(renderImage)
 	block4 := lipgloss.JoinVertical(lipgloss.Center, sixelBox, imageControls)
-	block4 = lipgloss.NewStyle().Width(width).Align(lipgloss.Center).MarginTop(1).Render(block4)
+	block4 = lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(block4)
 
 	return lipgloss.JoinVertical(lipgloss.Center, block1, block2, block3, block4)
 }
