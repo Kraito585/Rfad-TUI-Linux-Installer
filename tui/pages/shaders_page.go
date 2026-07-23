@@ -73,7 +73,7 @@ func NewShadersPage(cfg *tui.InstallConfig) ShadersPage {
 		KittyEscape:       "",
 		KittyRows:         0,
 		IsLoadingImg:      true,
-		TickID:            0,
+		TickID:            1, // ИСПРАВЛЕНИЕ: Задаем 1 изначально, чтобы не увеличивать в Init()
 		ActiveTabStyle:    lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true).Border(lipgloss.NormalBorder()).Padding(0, 1),
 		InactiveTabStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Border(lipgloss.NormalBorder()).Padding(0, 1),
 	}
@@ -130,8 +130,8 @@ func (m *ShadersPage) canDisable(preset core.Preset, modID string) bool {
 func (m ShadersPage) Init() tea.Cmd {
 	if len(core.GlobalPresets) > 0 {
 		m.initPresetMods(core.GlobalPresets[0])
-		m.TickID++
-		return tea.Batch(loadKittyCmd(core.GlobalPresets[0], 0), tickImage(m.TickID))
+		// ИСПРАВЛЕНИЕ: Используем жестко 1 для первого тика, так как Init работает с копией!
+		return tea.Batch(loadKittyCmd(core.GlobalPresets[0], 0), tickImage(1))
 	}
 	return nil
 }

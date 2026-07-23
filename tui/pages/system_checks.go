@@ -45,7 +45,6 @@ func (m SystemChecksPage) View() string {
 	okMark := brL + checkStyle.Render("✓") + brR
 	failMark := brL + crossStyle.Render("✗") + brR
 	warnMark := brL + warnStyle.Render("!") + brR
-	stubMark := brL + " " + brR // Заглушка [ ]
 
 	s := headerStyle.Render("Системные проверки") + "\n\n"
 
@@ -81,7 +80,11 @@ func (m SystemChecksPage) View() string {
 		checks = append(checks, okMark+" NVAPI")
 	}
 
-	checks = append(checks, stubMark+" Steam Deck")
+	if m.Checks.IsSteamDeck {
+		checks = append(checks, okMark+" Steam Deck "+m.Checks.DeckModel)
+	} else {
+		checks = append(checks, okMark+" PC Desktop")
+	}
 
 	// 2. Рендерим проверки
 	var rows []string

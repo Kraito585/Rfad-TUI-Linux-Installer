@@ -1,0 +1,512 @@
+{
+ "Advanced": {
+  "Background Compiler Threads": 8,
+  "Compiler Threads": 14,
+  "Dump Shaders": false,
+  "Frame Annotations": false,
+  "Log Level": 2,
+  "Partial Precision": false,
+  "Shader Defines": "",
+  "Use FileWatcher": true
+ },
+ "Advanced Skin": {
+  "BaseColorMultiplier": 1.0,
+  "BodyTilingMultiplier": 2.0,
+  "EnableSkin": true,
+  "EnableSkinDetail": true,
+  "ExtraEdgeRoughness": 0.25,
+  "ExtraSkinWetness": 0.0,
+  "F0": 0.027799999341368675,
+  "FullSweat": 0.15000000596046448,
+  "FuzzF0": 0.04500000178813934,
+  "FuzzRoughness": 0.3499999940395355,
+  "FuzzStrength": 1.0,
+  "PhysicalMainRoughnessMultiplier": 1.2999999523162842,
+  "PhysicalSecondRoughnessMultiplier": 0.75,
+  "PhysicalSpecularStrength": 1.0,
+  "SecondarySpecularStrength": 0.15000000596046448,
+  "SkinDetailStrength": 0.25,
+  "SkinDetailTiling": 10.0,
+  "SkinMainRoughness": 0.699999988079071,
+  "SkinSecondRoughness": 0.3499999940395355,
+  "SkinSpecularTexMultiplier": 1.0,
+  "StartSweat": 0.75,
+  "Translucency": 0.10000000149011612,
+  "UseDynamicWetness": false,
+  "UseSSS": true,
+  "WetFadeTime": 10.0,
+  "WetParams": [
+   512.0,
+   0.699999988079071,
+   10.0,
+   4.0
+  ],
+  "sssWidth": 0.20000000298023224
+ },
+ "CS Editor": null,
+ "Cloud Shadows": {
+  "Opacity": 0.800000011920929
+ },
+ "Disable at Boot": {
+  "UnifiedWater": true
+ },
+ "Dynamic Cubemaps": {
+  "EnabledCreator": 0,
+  "EnabledSSR": 1
+ },
+ "Exponential Height Fog": {
+  "cubemapMipLevel": 7.0,
+  "directionalInscatteringAnisotropy": 0.20000000298023224,
+  "directionalInscatteringMultiplier": 1.0,
+  "disableVanillaFog": 1,
+  "enabled": 0,
+  "fogDensity": 0.004999999888241291,
+  "fogHeight": 0.0,
+  "fogHeightFalloff": 0.20000000298023224,
+  "fogInscatteringColor": [
+   0.0,
+   0.0,
+   0.0,
+   1.0
+  ],
+  "inscatteringTint": [
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "originalFogColorAmount": 0.0,
+  "respectVanillaFogFade": 0,
+  "startDistance": 0.0,
+  "sunlightAttenuationAmount": 1.0,
+  "useDynamicCubemaps": 1,
+  "volumetricDepthDistributionScale": 8.0,
+  "volumetricDirectionalScatteringIntensity": 1.0,
+  "volumetricFogAlbedo": [
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "volumetricFogDistance": 60000.0,
+  "volumetricFogEmissive": [
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "volumetricFogEnabled": 0,
+  "volumetricFogExtinctionScale": 1.0,
+  "volumetricFogNearFadeInDistance": 1000.0,
+  "volumetricFogScatteringDistribution": 0.20000000298023224,
+  "volumetricFogStartDistance": 0.0,
+  "volumetricGridPixelSize": 16,
+  "volumetricGridSizeZ": 64,
+  "volumetricHistoryMissSampleCount": 4,
+  "volumetricHistoryWeight": 0.9599999785423279,
+  "volumetricLocalLightScatteringIntensity": 1.0,
+  "volumetricSampleJitterMultiplier": 0.0,
+  "volumetricShadowBias": 0.0020000000949949026,
+  "volumetricSkyLightingIntensity": 1.0,
+  "volumetricUpsampleJitterMultiplier": 1.0
+ },
+ "Extended Materials": {
+  "EnableComplexMaterial": 1,
+  "EnableHeightBlending": 1,
+  "EnableParallax": 1,
+  "EnableParallaxWarpingFix": 1,
+  "EnableShadows": 1,
+  "EnableTerrain": 0,
+  "ExtendShadows": 1
+ },
+ "Extended Translucency": {
+  "AlphaMode": 3,
+  "AlphaReduction": 0.15000000596046448,
+  "AlphaSoftness": 0.0,
+  "AlphaStrength": 0.0,
+  "SkinnedOnly": true
+ },
+ "General": {
+  "Enable Async": true,
+  "Enable Disk Cache": true,
+  "Enable Shaders": true,
+  "Language": "en",
+  "Skip Unchanged Shaders": true
+ },
+ "Grass Collision": {
+  "EnableGrassCollision": true,
+  "TrackRagdolls": true
+ },
+ "Grass Lighting": {
+  "BasicGrassBrightness": 1.0,
+  "ComplexGrassThreshold": 0.029999999329447746,
+  "Glossiness": 20.0,
+  "OverrideComplexGrassSettings": 0,
+  "SpecularStrength": 0.5,
+  "SubsurfaceScatteringAmount": 1.0
+ },
+ "HDR Display": {
+  "dontShowHDRWarning": false,
+  "enableHDR": false,
+  "hdrAutoDetected": false,
+  "hdrPaperWhite": 203,
+  "hdrPeakNits": 800,
+  "hdrUIBrightness": 1.0
+ },
+ "Hair Specular": {
+  "BaseColorMult": 1.5,
+  "DiffuseIndirectMult": 1.0,
+  "DiffuseMult": 1.0,
+  "EnableSelfShadow": 1,
+  "EnableTangentShift": 1,
+  "Enabled": 1,
+  "HairGlossiness": 70.0,
+  "HairMode": 1,
+  "HairSaturation": 1.0,
+  "PrimaryTangentShift": 0.5,
+  "SecondaryTangentShift": -0.25,
+  "SelfShadowExponent": 0.10000000149011612,
+  "SelfShadowScale": 2.5,
+  "SelfShadowStrength": 1.0,
+  "SpecularIndirectMult": 1.0,
+  "SpecularMult": 1.0,
+  "Transmission": 1.0
+ },
+ "Image Based Lighting": {
+  "DALCAmount": 1.0,
+  "DALCMode": 2,
+  "DisableInInteriors": 1,
+  "EnableIBL": 0,
+  "EnvIBLSaturation": 1.0,
+  "EnvIBLScale": 1.0,
+  "FogAmount": 0.0,
+  "PreserveFogLuminance": 0,
+  "SkyIBLSaturation": 1.0,
+  "SkyIBLScale": 1.0,
+  "UseStaticIBL": 1
+ },
+ "Interior Sun": {
+  "ForceDoubleSidedRendering": true,
+  "InteriorShadowDistance": 5000.0
+ },
+ "Inverse Square Lighting": null,
+ "LOD Blending": {
+  "DisableTerrainVertexColors": 0,
+  "LODObjectBrightness": 1.0,
+  "LODObjectGamma": 1.0,
+  "LODObjectSnowBrightness": 1.0,
+  "LODObjectSnowGamma": 1.0,
+  "LODTerrainBrightness": 1.0,
+  "LODTerrainGamma": 1.0
+ },
+ "Light Limit Fix": null,
+ "Linear Lighting": {
+  "ambientGamma": 1.7999999523162842,
+  "ambientMult": 1.0,
+  "bloodEffectMult": 1.0,
+  "colorGamma": 1.7999999523162842,
+  "deferredEffectMult": 1.0,
+  "directionalLightMult": 1.0,
+  "effectAlphaGamma": 1.5499999523162842,
+  "effectGamma": 1.399999976158142,
+  "effectLightingMult": 0.3199999928474426,
+  "emitColorGamma": 1.7999999523162842,
+  "emitColorMult": 1.0,
+  "enableLinearLighting": 0,
+  "fogAlphaGamma": 1.7999999523162842,
+  "fogGamma": 1.9700000286102295,
+  "glowmapGamma": 1.7999999523162842,
+  "glowmapMult": 0.6600000262260437,
+  "lightGamma": 1.7999999523162842,
+  "membraneEffectMult": 1.0,
+  "otherEffectMult": 1.0,
+  "pointLightMult": 1.0,
+  "projectedEffectMult": 1.0,
+  "skyGamma": 1.7999999523162842,
+  "vanillaDiffuseColorMult": 1.0,
+  "vlGamma": 1.7999999523162842,
+  "waterGamma": 1.7999999523162842
+ },
+ "Menu": {
+  "AutoHideFeatureList": false,
+  "CSEditorToggleKey": [
+   16,
+   35
+  ],
+  "EffectToggleKey": 106,
+  "EnableShaderBlocking": false,
+  "FirstTimeSetupCompleted": true,
+  "OverlayToggleKey": 121,
+  "RequireShiftToDock": true,
+  "ScreenshotKey": 44,
+  "SelectedThemePreset": "Default",
+  "ShaderBlockNextKey": 34,
+  "ShaderBlockPrevKey": 33,
+  "SkipClearCacheConfirmation": false,
+  "SkipCompilationKey": 27,
+  "SkipConstraintWarning": false,
+  "ToggleKey": 35,
+  "UseResolutionFont": true
+ },
+ "Performance Overlay": {
+  "BackgroundOpacity": 0.5,
+  "FrameHistorySize": 600,
+  "Position": [
+   10.0,
+   10.0
+  ],
+  "PositionSet": false,
+  "ShowBorder": true,
+  "ShowCSPasses": true,
+  "ShowDrawCalls": true,
+  "ShowFPS": true,
+  "ShowInOverlay": true,
+  "ShowPostFGFrameTimeGraph": true,
+  "ShowPreFGFrameTimeGraph": true,
+  "ShowVRAM": true,
+  "TextSize": 1.0,
+  "UpdateInterval": 0.5
+ },
+ "RenderDoc": {
+  "Capture Frame Count": 1,
+  "Enable RenderDoc Capture": false
+ },
+ "Replace Original Shaders": {
+  "BloodSplatter": true,
+  "DistantTree": true,
+  "Effect": true,
+  "Grass": true,
+  "ImageSpace": true,
+  "Lighting": true,
+  "Particle": true,
+  "Sky": true,
+  "Utility": true,
+  "Water": true
+ },
+ "Screen Space GI": {
+  "AOPower": 1.0,
+  "AORadius": 256.0,
+  "BlurRadius": 2.0,
+  "DepthDisocclusion": 0.10000000149011612,
+  "DepthFadeRange": [
+   40000.0,
+   50000.0
+  ],
+  "DistanceNormalisation": 2.0,
+  "EnableBlur": true,
+  "EnableExperimentalSpecularGI": false,
+  "EnableGI": true,
+  "EnableTemporalDenoiser": true,
+  "EnableVanillaSSAO": false,
+  "Enabled": true,
+  "GIDistanceCompensation": 0.0,
+  "GIRadius": 256.0,
+  "GISaturation": 0.800000011920929,
+  "GIStrength": 1.0,
+  "MaxAccumFrames": 16,
+  "MinScreenRadius": 0.009999999776482582,
+  "NormalDisocclusion": 0.10000000149011612,
+  "NumSlices": 4,
+  "NumSteps": 8,
+  "ResolutionMode": 1,
+  "Thickness": 32.0
+ },
+ "Screen Space Shadows": {
+  "BilinearThreshold": 0.019999999552965164,
+  "Enable": 1,
+  "SampleCount": 1,
+  "ShadowContrast": 1.0,
+  "SurfaceThickness": 0.019999999552965164
+ },
+ "Screenshot": {
+  "ApplyCropToScreenshot": true,
+  "CopyToClipboard": false,
+  "CropH": 1.0,
+  "CropPresets": [
+   {
+    "name": "Full Frame",
+    "uv": [
+     0.0,
+     0.0,
+     1.0,
+     1.0
+    ]
+   }
+  ],
+  "CropW": 1.0,
+  "CropX": 0.0,
+  "CropY": 0.0,
+  "HdrPngBitDepth": 11,
+  "ScreenshotPath": "Screenshots",
+  "SdrUsePng": true,
+  "SelectedPresetIndex": 0
+ },
+ "Sky Sync": {
+  "CrescentMoonIntensity": 0.25,
+  "CustomAngle": -35.0,
+  "DimSunlightUnderHorizon": true,
+  "DimVolumetricLighting": true,
+  "Enabled": true,
+  "FullMoonIntensity": 1.0,
+  "HorizonFadeHours": 0.699999988079071,
+  "MinShadowElevation": 10.0,
+  "MoonLightSource": 0,
+  "NewMoonIntensity": 0.05000000074505806,
+  "ShadowTransitionDuration": 100.0,
+  "SunPath": 0,
+  "UseAlternateSunPath": false
+ },
+ "Skylighting": {
+  "MaxZenith": 1.570796251296997,
+  "MinDiffuseVisibility": 0.10000000149011612,
+  "MinSpecularVisibility": 0.10000000149011612
+ },
+ "Subsurface Scattering": {
+  "BaseProfile": {
+   "BlurRadius": 1.0,
+   "Falloff": [
+    0.5600000023841858,
+    0.5600000023841858,
+    0.5600000023841858
+   ],
+   "Strength": [
+    0.47999998927116394,
+    0.4099999964237213,
+    0.2800000011920929
+   ],
+   "Thickness": 1.0
+  },
+  "BurleySamples": 16,
+  "CharacterLightingStrength": 1.0,
+  "EnableCharacterLighting": 0,
+  "HumanProfile": {
+   "BlurRadius": 1.0,
+   "Falloff": [
+    1.0,
+    0.3700000047683716,
+    0.30000001192092896
+   ],
+   "Strength": [
+    0.47999998927116394,
+    0.4099999964237213,
+    0.2800000011920929
+   ],
+   "Thickness": 1.0
+  },
+  "MeanFreePathBase": [
+   0.5600000023841858,
+   0.5600000023841858,
+   0.5600000023841858,
+   2.6700000762939453
+  ],
+  "MeanFreePathHuman": [
+   1.0,
+   0.3700000047683716,
+   0.30000001192092896,
+   2.6700000762939453
+  ],
+  "SSMode": 1,
+  "ScatterMode": 2
+ },
+ "Terrain Blending": {
+  "Enabled": 1
+ },
+ "Terrain Helper": null,
+ "Terrain Shadows": {
+  "EnableTerrainShadow": true
+ },
+ "Terrain Variation": {
+  "enableLODTerrainTilingFix": 1,
+  "enableTilingFix": 1
+ },
+ "True PBR": {
+  "VertexAOStrength": 1.0
+ },
+ "Unified Water": {
+  "UseOptimisedMeshes": true
+ },
+ "Upscaling": {
+  "frameGenerationAllowInMenus": false,
+  "frameGenerationForceEnable": 0,
+  "frameGenerationMode": 0,
+  "frameLimitMode": 1,
+  "presetDLSS": 0,
+  "qualityMode": 1,
+  "reflexFPSLimit": 60.0,
+  "reflexLowLatencyBoost": false,
+  "reflexLowLatencyMode": false,
+  "reflexUseFPSLimit": false,
+  "reflexUseMarkersToOptimize": false,
+  "sharpnessDLSS": 0.0,
+  "sharpnessFSR": 0.0,
+  "streamlineLogLevel": 0,
+  "upscaleMethod": 3,
+  "upscaleMethodNoDLSS": 2
+ },
+ "Version": "1-7-3-0",
+ "Volumetric Lighting": {
+  "ExteriorCustomSize": {
+   "Depth": 90,
+   "Height": 192,
+   "Width": 320
+  },
+  "ExteriorEnabled": true,
+  "ExteriorQuality": 2,
+  "InteriorCustomSize": {
+   "Depth": 90,
+   "Height": 192,
+   "Width": 320
+  },
+  "InteriorEnabled": true,
+  "InteriorQuality": 2
+ },
+ "Volumetric Shadows": null,
+ "Water Effects": null,
+ "Wetness Effects": {
+  "DebugSettings": {
+   "EnableIntExOverride": false,
+   "EnablePuddleOverride": false,
+   "EnableRainOverride": false,
+   "EnableWetnessOverride": false,
+   "PuddleWetnessOverride": [
+    0.0,
+    0.0
+   ],
+   "RainOverride": [
+    0.0,
+    0.0
+   ],
+   "WetnessOverride": [
+    0.0,
+    0.0
+   ]
+  },
+  "EnableRaindropFx": 1,
+  "EnableRipples": 1,
+  "EnableSplashes": 1,
+  "EnableVanillaRipples": 0,
+  "EnableWetnessEffects": 1,
+  "MaxPuddleWetness": 1.5,
+  "MaxRainWetness": 1.0,
+  "MaxShoreWetness": 1.0,
+  "MinRainWetness": 0.6499999761581421,
+  "PuddleMaxAngle": 0.949999988079071,
+  "PuddleMinWetness": 0.8500000238418579,
+  "PuddleRadius": 1.0,
+  "RaindropChance": 1.0,
+  "RaindropFxRange": 1000.0,
+  "RaindropGridSize": 4.0,
+  "RaindropInterval": 1.0,
+  "RippleBreadth": 0.5,
+  "RippleLifetime": 0.5,
+  "RippleRadius": 1.0,
+  "RippleStrength": 1.0,
+  "ShoreRange": 32,
+  "SkinWetness": 0.949999988079071,
+  "SplashesLifetime": 10.0,
+  "SplashesMaxRadius": 0.5,
+  "SplashesMinRadius": 0.30000001192092896,
+  "SplashesStrength": 1.0499999523162842,
+  "WeatherTransitionSpeed": 3.0
+ }
+}

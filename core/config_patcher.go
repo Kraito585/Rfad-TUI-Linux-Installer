@@ -135,24 +135,64 @@ func generatePatchList(cfg *tui.InstallConfig) []ConfigPatch {
 
 	// Влкючение Community Shaders и лечение его зависимостей
 	if cfg.GraphicsMod == "Community Shaders" {
+		insertMods := "\n+Community Shaders 86492 1.7.3 2026-06-27T10-38Z 6Xybdafll\n+Upscaling 156952 1.4.0 2026-05-31T10-27Z L5WQbqiov"
+
+		// Находим активный пресет для добавления его в список
+		for _, p := range GlobalPresets {
+			if p.ID == cfg.ShaderPresetID {
+				insertMods += fmt.Sprintf("\n+CS Preset - %s", p.Metadata.AuthorNickname)
+
+				// Добавляем включенные дополнения
+				for _, mod := range p.Metadata.OptionalMods {
+					if cfg.ShaderMods[mod.ID] {
+						insertMods += fmt.Sprintf("\n+CS Addon - %s", sanitize(mod.Name))
+					}
+				}
+				break
+			}
+		}
+		insertMods += "\n-Community Shaders_separator"
+
+		// Патчим modlist.txt
 		patches = append(patches, ConfigPatch{
 			TargetFile: "MO2/profiles/RFAD_SE/modlist.txt",
 			Replace: map[string]string{
 				"+Enhanced Volumetric Lighting and Shadows (EVLaS)": "-Enhanced Volumetric Lighting and Shadows (EVLaS)",
 			},
 			InsertAfter: map[string]string{
-				"-MY MODS_separator": "\n+Community Shaders 86492 1.7.3 2026-06-27T10-38Z 6Xybdafll\n+Upscaling 156952 1.4.0 2026-05-31T10-27Z L5WQbqiov\n-KRAITO PATCH",
+				"-MY MODS_separator": insertMods,
+			},
+		})
+
+		patches = append(patches, ConfigPatch{
+			TargetFile: "MO2/overwrite/SKSE/Plugins/CommunityShaders/SettingsUser.json",
+			ReplacePrefix: map[string]string{
+				// Ищем без пробелов в начале (так как строка обрезается через TrimSpace)
+				`"frameGenerationMode":`: `  "frameGenerationMode": 1,`,
+			},
+		})
+
+	}
+
+	if cfg.UseFSR && cfg.GraphicsMod == "Community Shaders" {
+		fsrLevelStr := fmt.Sprintf(`  "qualityMode": %v,`, getQualityMode(cfg))
+
+		patches = append(patches, ConfigPatch{
+			TargetFile: "MO2/overwrite/SKSE/Plugins/CommunityShaders/SettingsUser.json",
+			ReplacePrefix: map[string]string{
+				// Ищем без пробелов в начале
+				`"qualityMode":`: fsrLevelStr,
 			},
 		})
 	}
 
-	if cfg.UseFSR && cfg.GraphicsMod == "Community Shaders" {
-		fsrLevel := fmt.Sprintf("%v", getQualityMode(cfg))
+	if !cfg.UseFSR && cfg.GraphicsMod == "Community Shaders" {
 		patches = append(patches, ConfigPatch{
 			TargetFile: "MO2/overwrite/SKSE/Plugins/CommunityShaders/SettingsUser.json",
-			Replace: map[string]string{
-				"Fullscreen = false": "Fullscreen = true",
-				"Borderless = true":  "Borderless = false",
+			ReplacePrefix: map[string]string{
+				// Ищем без пробелов в начале
+				`"upscaleMethodNoDLSS":`: `  "upscaleMethodNoDLSS": 0,`,
+				`"qualityMode":`:         `  "qualityMode": 0,`,
 			},
 		})
 	}

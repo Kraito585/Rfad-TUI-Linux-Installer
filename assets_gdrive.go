@@ -6,7 +6,7 @@ import "embed"
 
 // Вшиваем и ASCII, и ключи (так как мы в корне, доступ к src/ есть)
 //
-//go:embed src/install_gdrive.ascii src/credentials.json src/EngineFixes.dll src/steam_fix.tar.gz src/mod-organizer.ico src/rfad-tui-launcher.ico src/tweaks.json
+//go:embed src/install_gdrive.ascii src/credentials.json src/EngineFixes.dll src/steam_fix.tar.gz src/mod-organizer.ico src/rfad-tui-launcher.ico src/tweaks.json src/SettingsUser.json src/innoextract
 var bundledAssets embed.FS
 
 // Функция-помощник для main.go

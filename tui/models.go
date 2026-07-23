@@ -25,6 +25,8 @@ type SystemChecks struct {
 	HasWine      bool
 	HasGameMode  bool
 	HasNVAPI     bool
+	IsSteamDeck  bool
+	DeckModel    string
 	ScreenWidth  int
 	ScreenHeight int
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"rfad-installer/tui"
 	"strings"
 )
 
@@ -23,7 +24,7 @@ func getFileHash(filePath string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR, useNVAPI, useGameMode bool) error {
+func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR, useNVAPI, useGameMode bool, cfg *tui.InstallConfig) error {
 	LogInfo("GeneratePPDB: генерация конфига для %s (Wine: %s)", targetExe, wineVersion)
 
 	ppdbName := targetExe + ".ppdb"
@@ -62,7 +63,7 @@ func GeneratePPDB(gamePath string, targetExe string, wineVersion string, useFSR,
 
 	// Блок if useSteamFix полностью удален!
 
-	if useFSR {
+	if useFSR && cfg.GraphicsMod != "Community Shaders" {
 		sb.WriteString("export WINE_FULLSCREEN_FSR=\"1\"\n")
 		sb.WriteString("export WINE_FULLSCREEN_FSR_STRENGTH=\"2\"\n")
 	}

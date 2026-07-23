@@ -262,6 +262,8 @@ func ApplySteamFix(gamePath string, assets embed.FS) error {
 }
 
 // теперь эта функция просто перезаписывает префикс в steam, эталоная версия префикса хранится в файлах игры
+// CreateSteamPrelaunchScript создает скрипт для безопасного восстановления префикса Steam
+// теперь эта функция просто перезаписывает префикс в steam, эталонная версия префикса хранится в файлах игры
 func CreateSteamPrelaunchScript(installPath string) (string, error) {
 	fixesDir := filepath.Join(installPath, "linux-fixes")
 	os.MkdirAll(fixesDir, 0755)
@@ -276,50 +278,30 @@ LOG_FILE="$FIXES_DIR/steam_prefix_patch.log"
 
 # Наш эталонный префикс со всей структурой Steam (version, config_info, pfx)
 STABLE_COMPAT="$FIXES_DIR/SteamPrefix"
-TARGET_VERSION="GE-Proton11-1"
 
 echo "=== [$(date)] ЗАПУСК ИГРЫ В STEAM ===" >> "$LOG_FILE"
 
-# 1. АВТОВОССТАНОВЛЕНИЕ И ПАТЧИНГ ПРЕФИКСА СЕЛИКОМ
+# 1. АВТОВОССТАНОВЛЕНИЕ ПРЕФИКСА ЦЕЛИКОМ (Без патчинга)
 if [ -n "$STEAM_COMPAT_DATA_PATH" ]; then
     
-    # Читаем версию из КОРНЯ префикса Steam
-    CURRENT_VERSION=""
-    if [ -f "$STEAM_COMPAT_DATA_PATH/version" ]; then
-        CURRENT_VERSION=$(cat "$STEAM_COMPAT_DATA_PATH/version" | grep -o "$TARGET_VERSION")
-    fi
+    # Читаем версии для сравнения
+    STABLE_VERSION=$(cat "$STABLE_COMPAT/version" 2>/dev/null)
+    CURRENT_VERSION=$(cat "$STEAM_COMPAT_DATA_PATH/version" 2>/dev/null)
 
-    # Если Steam сбросил префикс или версия не совпадает
-    if [ "$CURRENT_VERSION" != "$TARGET_VERSION" ]; then
-        echo "Steam сбросил префикс или версия не совпадает. Восстанавливаем эталон целиком..." >> "$LOG_FILE"
+    # Если Steam сбросил префикс, удалил папку pfx или версия не совпадает с эталонной
+    if [ "$STABLE_VERSION" != "$CURRENT_VERSION" ] || [ ! -d "$STEAM_COMPAT_DATA_PATH/pfx" ]; then
+        echo "Steam сбросил префикс. Восстанавливаем эталон целиком..." >> "$LOG_FILE"
         
-        # 1. Очищаем папку, которую выделил Steam (оставляем саму папку, удаляем содержимое)
+        # 1. Очищаем папку, которую выделил Steam
         rm -rf "$STEAM_COMPAT_DATA_PATH"/*
         rm -rf "$STEAM_COMPAT_DATA_PATH"/.* 2>/dev/null
         
         # 2. Копируем всё содержимое эталона (pfx, version, config_info)
         cp -a "$STABLE_COMPAT"/. "$STEAM_COMPAT_DATA_PATH/"
         
-        # 3. Перезаписываем файлы version нужной строкой (Proton пишет их в 2 местах)
-        echo "$TARGET_VERSION" > "$STEAM_COMPAT_DATA_PATH/version"
-        if [ -d "$STEAM_COMPAT_DATA_PATH/pfx" ]; then
-            echo "$TARGET_VERSION" > "$STEAM_COMPAT_DATA_PATH/pfx/version"
-        fi
-        
-        # 4. Патчим пути в config_info (снаружи и внутри pfx)
-        for CONF in "$STEAM_COMPAT_DATA_PATH/config_info" "$STEAM_COMPAT_DATA_PATH/pfx/config_info"; do
-            if [ -f "$CONF" ]; then
-                # Меняем версию Proton
-                sed -i "s|GE-Proton10-28|$TARGET_VERSION|g" "$CONF"
-                # Заменяем хардкод пользователя deck на текущего пользователя
-                sed -i "s|/home/deck/.local/share/Steam|$HOME/.local/share/Steam|g" "$CONF"
-                sed -i "s|/home/deck/.steam/root|$HOME/.steam/root|g" "$CONF"
-            fi
-        done
-        
-        echo "Эталонный префикс скопирован и пропатчен!" >> "$LOG_FILE"
+        echo "Эталонный префикс успешно восстановлен!" >> "$LOG_FILE"
     else
-        echo "Префикс в норме ($TARGET_VERSION). Пропускаем восстановление." >> "$LOG_FILE"
+        echo "Префикс в норме. Пропускаем восстановление." >> "$LOG_FILE"
     fi
 else
     echo "ВНИМАНИЕ: STEAM_COMPAT_DATA_PATH пуста. Steam запущен некорректно?" >> "$LOG_FILE"

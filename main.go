@@ -20,19 +20,26 @@ import (
 	"rfad-installer/tui/pages"
 )
 
-// IsSteamDeckLCD проверяет, является ли устройство Steam Deck с LCD экраном (Jupiter)
-func IsSteamDeckLCD() bool {
+// GetSteamDeckModel проверяет, является ли устройство Steam Deck, и возвращает его модель
+func GetSteamDeckModel() (bool, string) {
 	const path = "/sys/class/dmi/id/product_name"
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return false, ""
 	}
 	productName := string(bytes.TrimSpace(data))
-	return productName == "Jupiter"
+
+	if productName == "Jupiter" {
+		return true, "LCD"
+	} else if productName == "Galileo" {
+		return true, "OLED"
+	}
+
+	return false, ""
 }
 
 // RunSystemChecks выполняет диагностику системы
-func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck bool, screenWidth, screenHeight int, portProtonVersion string) {
+func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck bool, screenWidth, screenHeight int, portProtonVersion string, deckModel string) {
 	core.LogInfo("=== Выполнение предполетных проверок ===")
 
 	isSudo = os.Geteuid() == 0
@@ -42,10 +49,11 @@ func RunSystemChecks() (isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck bool
 		core.LogInfo("Запуск от обычного пользователя")
 	}
 
-	isSteamDeck = IsSteamDeckLCD()
+	isSteamDeck, deckModel = GetSteamDeckModel()
 	if isSteamDeck {
-		core.LogInfo("Обнаружено устройство: Steam Deck LCD (Jupiter)")
+		core.LogInfo("Обнаружено устройство: Steam Deck %s", deckModel)
 	}
+
 	hasWine = checkBinary("proton")
 	portProtonVersion = "Не найден"
 
@@ -264,7 +272,7 @@ func main() {
 	core.LogInfo("Запуск фонового кэширования пресетов Community Shaders...")
 	core.FetchAndCachePresets(cacheDir)
 
-	isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck, screenWidth, screenHeight, portProtonVersion := RunSystemChecks()
+	isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck, screenWidth, screenHeight, portProtonVersion, deckModel := RunSystemChecks()
 	core.LogInfo("Системные проверки пройдены: Sudo=%v, Wine=%v, GameMode=%v, NVAPI=%v, Screan=%v x %v, Steamdeck=%v, PPV=%v", isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight, isSteamDeck, portProtonVersion)
 
 	startChan := make(chan *tui.InstallConfig)
@@ -273,7 +281,7 @@ func main() {
 	asciiArt := ""
 	asciiArt = string(asciiBytes)
 
-	page := pages.NewIndex(startChan, asciiArt, isSudo, hasWine, hasGameMode, hasNVAPI, screenWidth, screenHeight)
+	page := pages.NewIndex(startChan, asciiArt, isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck, deckModel, screenWidth, screenHeight)
 	p := tea.NewProgram(page, tea.WithInput(os.Stdin))
 
 	go func() {
@@ -314,7 +322,10 @@ func main() {
 		err = core.ExtractInstaller(
 			cfg.InstallerPath,
 			cfg.InstallPath,
+			cfg,
 			cfg.GraphicsMod,
+			cacheDir,
+			bundledAssets,
 			func(percent float64, detail string) {
 				p.Send(pages.ProgressMsg{
 					Percent: percent,
@@ -326,6 +337,11 @@ func main() {
 		if err != nil {
 			p.Send(pages.ErrorMsg{Err: err})
 			return
+		}
+
+		if cfg.GraphicsMod == "Community Shaders" {
+			kraitoSeparatorDir := filepath.Join(cfg.InstallPath, "MO2", "mods", "KRAITO PATCH_separator")
+			os.MkdirAll(kraitoSeparatorDir, 0755)
 		}
 
 		// === ЭТАП 2: ЗАГРУЗКА ОБНОВЛЕНИЯ ===
@@ -378,8 +394,8 @@ func main() {
 
 		err = core.EnablePlugin(gamePath, "Rfad_Runes.esp")
 
-		// === ЭТАП 3: ЗАГРУЗКА И РАСПАКОВКА ПРЕФИКСА WINE ===
-		core.LogInfo("=== ЭТАП 3: Распаковка префикса Wine ===")
+		// === ЭТАП 4: ЗАГРУЗКА И РАСПАКОВКА ПРЕФИКСА WINE ===
+		core.LogInfo("=== ЭТАП 4: Распаковка префикса Wine ===")
 
 		prefixBase, err := core.GetPortProtonPrefixPath()
 		if err == nil {
@@ -463,10 +479,6 @@ func main() {
 		orig := filepath.Join(mo2Path, "ModOrganizer.exe")
 
 		if cfg.UseSteamFix {
-			// Внедряем Python-плагин для генерации маркера
-			// Необходим для коректного запуска RFAD из steam в случае если mo2
-			// был запущен раньше чем игра, поскольку в запуск игры вшит одноразовый старт mo2
-			// для открытия контекстного окна portproton с дозогрузкой библиотек
 			if err = core.CreateMO2PythonPlugin(cfg.InstallPath); err != nil {
 				core.LogWarn("Не удалось создать Python-плагин: %v", err)
 			}
@@ -478,10 +490,10 @@ func main() {
 				p.Send(pages.ErrorMsg{Err: fmt.Errorf("ошибка создания дубликата MO2: %v", err)})
 				return
 			}
-			core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode)
+			core.GeneratePPDB(cfg.InstallPath, "ModOrganizerSKSE.exe", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode, cfg)
 		}
 
-		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode)
+		core.GeneratePPDB(cfg.InstallPath, "ModOrganizer.exe", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode, cfg)
 
 		core.LogInfo("PPDB сгенерированы: wine=%s, FSR=%v, NVAPI=%v, GameMode=%v, SteamFix=%v", wineVersion, cfg.UseFSR, hasNVAPI, hasGameMode, cfg.UseSteamFix)
 
@@ -532,7 +544,7 @@ func main() {
 
 				launchParts = append(launchParts, `WINEDLLOVERRIDES='xaudio2_7=n,b;d3d11=n,b;d3dx9_42=n,b;d3dcompiler_47=n,b;dinput8=n,b;mscoree=n'`)
 
-				if cfg.UseFSR {
+				if cfg.UseFSR && cfg.GraphicsMod != "Community Shaders" {
 					launchParts = append(launchParts, "WINE_FULLSCREEN_FSR=1", "WINE_FULLSCREEN_FSR_STRENGTH=2")
 				}
 				// Возможно в будубющем буду включать cuda в конфигах

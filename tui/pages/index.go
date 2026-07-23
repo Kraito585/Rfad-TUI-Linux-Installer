@@ -68,7 +68,7 @@ type Index struct {
 	BoxWidth int
 }
 
-func NewIndex(startChan chan *tui.InstallConfig, ascii string, isSudo, hasWine, hasGameMode, hasNVAPI bool, screenWidth, screenHeight int) Index {
+func NewIndex(startChan chan *tui.InstallConfig, ascii string, isSudo, hasWine, hasGameMode, hasNVAPI, isSteamDeck bool, deckModel string, screenWidth, screenHeight int) Index {
 	cfg := tui.NewInstallConfig()
 
 	cfg.BaseWidth = screenWidth
@@ -93,6 +93,8 @@ func NewIndex(startChan chan *tui.InstallConfig, ascii string, isSudo, hasWine, 
 		HasWine:      hasWine,
 		HasGameMode:  hasGameMode,
 		HasNVAPI:     hasNVAPI,
+		IsSteamDeck:  isSteamDeck,
+		DeckModel:    deckModel,
 		ScreenWidth:  screenWidth,
 		ScreenHeight: screenHeight,
 	}
@@ -424,9 +426,7 @@ func (m Index) View() string {
 			warning := "\n  ВНИМАНИЕ!\n\n" +
 				"  Для интеграции игры в библиотеку необходимо закрыть клиент Steam.\n" +
 				"  Убедитесь, что у вас не скачиваются другие игры.\n\n" +
-				"  Продолжить и закрыть Steam прямо сейчас?\n\n" +
-				"  [Y / Enter] Да, закрыть Steam и продолжить\n" +
-				"  [N / Esc]   Нет, пропустить интеграцию"
+				"  Продолжить и закрыть Steam прямо сейчас?\n\n"
 			rawBody = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true).Render(warning)
 		}
 	}

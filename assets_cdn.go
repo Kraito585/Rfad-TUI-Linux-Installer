@@ -4,7 +4,7 @@ package main
 
 import "embed"
 
-//go:embed src/install_cdn.ascii src/EngineFixes.dll src/steam_fix.tar.gz src/mod-organizer.ico src/rfad-tui-launcher.ico src/tweaks.json
+//go:embed src/install_cdn.ascii src/EngineFixes.dll src/steam_fix.tar.gz src/mod-organizer.ico src/rfad-tui-launcher.ico src/tweaks.json src/SettingsUser.json src/innoextract
 var bundledAssets embed.FS
 
 // Заглушка, возвращает nil
