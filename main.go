@@ -340,7 +340,7 @@ func main() {
 		}
 
 		if cfg.GraphicsMod == "Community Shaders" {
-			kraitoSeparatorDir := filepath.Join(cfg.InstallPath, "MO2", "mods", "KRAITO PATCH_separator")
+			kraitoSeparatorDir := filepath.Join(cfg.InstallPath, "MO2", "mods", "Community Shaders_separator")
 			os.MkdirAll(kraitoSeparatorDir, 0755)
 		}
 
